@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data and outputs
+data/
+results/
+*.fcs
