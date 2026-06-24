@@ -14,9 +14,13 @@ Two commands make up the workflow:
   Each gate is drawn once on a pooled subsample and filtered from the previous
   stage's population (so the singlet gate is drawn on the cells only).
 
-- **`analyze-fluor`** — fluorescence analysis of the gated singlets (logicle
-  transform, histograms by condition, MFI / % positive, 2D density,
-  dose-response). See [section 4](#4-fluorescence-analysis).
+- **`analyze`** — **config-driven** fluorescence analysis of the gated singlets.
+  Each experiment is described by a TOML file listing the channels and which
+  analysis modules to run (logicle histograms, MFI / % positive, 2D density,
+  quadrant, dose-response). See [section 4](#4-fluorescence-analysis).
+
+The gating front-end is shared by every experiment; only the `analyze` config
+changes from one experiment to the next.
 
 ## Install
 
@@ -91,37 +95,67 @@ Pass `--redraw` to re-draw every gate from scratch.
 
 ## 4. Fluorescence analysis
 
-Once the gates exist, analyse the fluorescence of the singlet population:
+The fluorescence stage is **config-driven** so it adapts to each experiment.
+You write one TOML file describing the channels and which analyses to run, then:
 
 ```bash
-uv run analyze-fluor --sheet samples.csv --data data/ --out results/
+uv run analyze experiment.toml
 ```
 
 It replays the saved gates to reconstruct the singlets, applies a **logicle**
-transform to the fluorescence channels (default `BL1-A,RL1-A`), and writes:
+transform, and runs each listed analysis. Paths in the config are relative to
+the config file's own location.
 
-| File | Contents |
-|------|----------|
-| `fluor_stats.csv` | Per-sample **MFI** (median, raw scale) and **% positive** per channel, with conditions |
-| `fluor_hist_<channel>.png` | Logicle histograms, one line per sample, coloured by condition |
-| `fluor_2d_density.png` | Faceted BL1-A vs RL1-A logicle density, one panel per sample |
-| `fluor_dose_response.png` | MFI and % positive vs dose, grouped by condition |
+```toml
+sheet = "samples.csv"
+data  = "data"
+out   = "results"
+channels = ["BL1-A", "RL1-A"]   # default: all non-scatter channels
+control  = "light_0"             # negative control for + thresholds (auto: lowest dose)
+# group / dose columns are auto-detected; override with group = "...", dose = "..."
 
-**% positive** is computed against a threshold set at the
-`--positive-percentile` (default 99th) of a **control** sample's transformed
-values — so use an unstained / uninduced control. The dose and grouping columns
-are auto-detected from the sample sheet; override with `--dose`, `--group`, and
-`--control`.
+[[analysis]]
+kind = "mfi_pct"                 # MFI + % positive table
 
-### Useful options
+[[analysis]]
+kind = "histograms"             # one logicle histogram per channel
 
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `--channels` | `BL1-A,RL1-A` | Fluorescence channels to analyse |
-| `--control` | lowest dose | Sample used to set the + threshold |
-| `--dose` / `--group` | auto | Condition columns for the x-axis / colour |
-| `--positive-percentile` | `99.0` | Control percentile defining "positive" |
-| `--t` `--w` `--m` `--a` | logicle std | Logicle transform parameters |
+[[analysis]]
+kind = "density_2d"
+x = "BL1-A"
+y = "RL1-A"
+
+[[analysis]]
+kind = "quadrant"               # two thresholds -> four populations
+x = "BL1-A"
+y = "RL1-A"
+labels = { dn = "live", x_pos = "early", dp = "late", y_pos = "necrotic" }
+
+[[analysis]]
+kind = "dose_response"          # MFI / % positive vs dose
+```
+
+### Built-in analysis kinds
+
+| `kind` | Key params | Outputs |
+|--------|------------|---------|
+| `mfi_pct` | `channels`, `control`, `positive_percentile` | `fluor_stats.csv` (MFI + % positive) |
+| `histograms` | `channels`, `group`, `control` | `hist_<channel>.png` |
+| `density_2d` | `x`, `y` | `density_2d.png` (faceted per sample) |
+| `quadrant` | `x`, `y`, `labels`, `control`, `dose` | `quadrant.csv`, `*_density.png` (crosshairs + % per quadrant), `*_dose_response.png` (stacked) |
+| `dose_response` | `channels`, `dose`, `group`, `control` | `dose_response.png` (MFI + % positive vs dose) |
+
+Every parameter is optional and falls back to the top-level config / auto-detection.
+**% positive** and quadrant thresholds are set at `positive_percentile` (default
+99th) of the **control** sample's transformed values — use an unstained /
+untreated control. Top-level keys: `out`, `gates`, `gate_names`, `subsample`,
+`per_sample`, `positive_percentile`, and `logicle = { param_t = ..., ... }`.
+
+### Adding a new analysis
+
+Write a function in `analysis.py` decorated with `@register("my_kind")` that
+takes the `AnalysisContext` plus keyword params and writes to `ctx.out_dir`. It
+is then available as `kind = "my_kind"` in any experiment's config.
 
 > Note: this step assumes any spillover **compensation** was already applied (or
 > isn't needed). Compensation from the FCS `$SPILLOVER` matrix is a possible

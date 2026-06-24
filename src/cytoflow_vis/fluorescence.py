@@ -42,6 +42,25 @@ def _subsample(values: np.ndarray, n: int, rng) -> np.ndarray:
     return values[rng.choice(len(values), size=n, replace=False)]
 
 
+def control_thresholds(
+    populations: list[dict],
+    channels: list[str],
+    xform,
+    control_id: str,
+    percentile: float = 99.0,
+) -> dict[str, float]:
+    """Positive threshold per channel = ``percentile`` of the control's
+    transformed values. Use an unstained / untreated control so the threshold
+    lands in the negative population."""
+    control = next((p for p in populations if p["sample_id"] == control_id), None)
+    if control is None:
+        raise ValueError(f"control sample {control_id!r} not found among populations")
+    return {
+        ch: float(np.percentile(xform.apply(control["events"][ch].to_numpy(dtype=float)), percentile))
+        for ch in channels
+    }
+
+
 def compute_stats(
     populations: list[dict],
     channels: list[str],
@@ -56,14 +75,11 @@ def compute_stats(
     set per channel at the given percentile of the control's transformed
     values, and ``pct_pos_<channel>`` is the fraction of events above it.
     """
-    thresholds: dict[str, float] = {}
-    if control_id is not None:
-        control = next((p for p in populations if p["sample_id"] == control_id), None)
-        if control is None:
-            raise ValueError(f"control sample {control_id!r} not found among populations")
-        for ch in channels:
-            xf = xform.apply(control["events"][ch].to_numpy(dtype=float))
-            thresholds[ch] = float(np.percentile(xf, positive_percentile))
+    thresholds = (
+        control_thresholds(populations, channels, xform, control_id, positive_percentile)
+        if control_id is not None
+        else {}
+    )
 
     rows = []
     for p in populations:
@@ -176,4 +192,125 @@ def plot_dose_response(
     ax.set_ylim(bottom=0)  # anchor at 0 so a flat channel reads as flat
     ax.set_xlabel(dose_col)
     ax.set_ylabel(y_col)
+    return ax
+
+
+# --- Quadrant analysis (two thresholds -> four populations) ------------------
+# Quadrant keys, with their corner on an (x, y) plot:
+#   dn  = x-/y-  (lower-left)    x_pos = x+/y-  (lower-right)
+#   dp  = x+/y+  (upper-right)   y_pos = x-/y+  (upper-left)
+QUADRANT_KEYS = ("dn", "x_pos", "dp", "y_pos")
+
+
+def _resolve_labels(labels: dict | None) -> dict:
+    return {**{k: k for k in QUADRANT_KEYS}, **(labels or {})}
+
+
+def quadrant_stats(
+    populations: list[dict],
+    x_channel: str,
+    y_channel: str,
+    xform,
+    x_threshold: float,
+    y_threshold: float,
+    labels: dict | None = None,
+) -> pd.DataFrame:
+    """Per-sample percentage of events in each of the four quadrants.
+
+    ``labels`` optionally renames the quadrant keys (e.g. for an apoptosis
+    panel: ``{"dn": "live", "x_pos": "early", "dp": "late", "y_pos": "necrotic"}``).
+    """
+    labels = _resolve_labels(labels)
+    rows = []
+    for p in populations:
+        xf = xform.apply(p["events"][x_channel].to_numpy(dtype=float))
+        yf = xform.apply(p["events"][y_channel].to_numpy(dtype=float))
+        xp, yp = xf > x_threshold, yf > y_threshold
+        n = len(xf)
+        frac = {
+            "dn": np.mean(~xp & ~yp) if n else float("nan"),
+            "x_pos": np.mean(xp & ~yp) if n else float("nan"),
+            "dp": np.mean(xp & yp) if n else float("nan"),
+            "y_pos": np.mean(~xp & yp) if n else float("nan"),
+        }
+        row = {"sample_id": p["sample_id"], **p["conditions"], "n": int(n)}
+        for k in QUADRANT_KEYS:
+            row[f"pct_{labels[k]}"] = round(100.0 * float(frac[k]), 2)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def plot_quadrants(
+    populations: list[dict],
+    x_channel: str,
+    y_channel: str,
+    xform,
+    x_threshold: float,
+    y_threshold: float,
+    quad_df: pd.DataFrame,
+    labels: dict | None = None,
+    per_sample: int = 20000,
+    ncols: int = 3,
+    bins: int = 150,
+    seed: int = 0,
+) -> plt.Figure:
+    """Faceted 2D density with quadrant crosshairs and per-quadrant % labels."""
+    labels = _resolve_labels(labels)
+    rng = np.random.default_rng(seed)
+    n = len(populations)
+    ncols = min(ncols, n)
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows), squeeze=False)
+    flat = axes.flatten()
+    # corner placement (x, y, halign, valign) in axes fraction for each quadrant
+    corners = {
+        "dn": (0.03, 0.03, "left", "bottom"),
+        "x_pos": (0.97, 0.03, "right", "bottom"),
+        "dp": (0.97, 0.97, "right", "top"),
+        "y_pos": (0.03, 0.97, "left", "top"),
+    }
+    for ax, p in zip(flat, populations):
+        x = xform.apply(_subsample(p["events"][x_channel].to_numpy(dtype=float), per_sample, rng))
+        y = xform.apply(_subsample(p["events"][y_channel].to_numpy(dtype=float), per_sample, rng))
+        density_plot(
+            x, y, ax=ax, xlabel=f"{x_channel} (logicle)", ylabel=f"{y_channel} (logicle)",
+            title=p["sample_id"], bins=bins, clip_percentile=None,
+        )
+        ax.set_xlim(_LOGICLE_LO, _LOGICLE_HI)
+        ax.set_ylim(_LOGICLE_LO, _LOGICLE_HI)
+        ax.axvline(x_threshold, color="k", ls="--", lw=0.8)
+        ax.axhline(y_threshold, color="k", ls="--", lw=0.8)
+        row = quad_df.loc[quad_df["sample_id"] == p["sample_id"]].iloc[0]
+        for k in QUADRANT_KEYS:
+            fx, fy, ha, va = corners[k]
+            ax.text(
+                fx, fy, f"{labels[k]}\n{row[f'pct_{labels[k]}']:.1f}%",
+                transform=ax.transAxes, ha=ha, va=va, fontsize=7,
+                bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.7),
+            )
+    for ax in flat[n:]:
+        ax.axis("off")
+    fig.tight_layout()
+    return fig
+
+
+def plot_quadrant_dose_response(
+    ax: plt.Axes,
+    quad_df: pd.DataFrame,
+    dose_col: str,
+    labels: dict | None = None,
+    logx: bool = True,
+) -> plt.Axes:
+    """Stacked area of the four quadrant fractions vs dose (finite doses only)."""
+    labels = _resolve_labels(labels)
+    sub = quad_df[np.isfinite(pd.to_numeric(quad_df[dose_col], errors="coerce"))].copy()
+    sub = sub.sort_values(dose_col)
+    ys = [sub[f"pct_{labels[k]}"].to_numpy() for k in QUADRANT_KEYS]
+    ax.stackplot(sub[dose_col].to_numpy(), *ys, labels=[labels[k] for k in QUADRANT_KEYS])
+    if logx:
+        ax.set_xscale("symlog")
+    ax.set_xlabel(dose_col)
+    ax.set_ylabel("% of singlets")
+    ax.set_ylim(0, 100)
+    ax.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.0, 0.5))
     return ax

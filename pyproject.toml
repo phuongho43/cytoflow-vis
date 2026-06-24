@@ -12,7 +12,7 @@ dependencies = [
 
 [project.scripts]
 gate-cells = "cytoflow_vis.cli:main"
-analyze-fluor = "cytoflow_vis.fluor_cli:main"
+analyze = "cytoflow_vis.runner:main"
 
 [build-system]
 requires = ["hatchling"]
