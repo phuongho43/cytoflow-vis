@@ -112,6 +112,7 @@ data  = "data"
 out   = "results"
 channels = ["BL1-A", "RL1-A"]   # default: all non-scatter channels
 control  = "light_0"             # negative control for + thresholds (auto: lowest dose)
+compensation = "acquisition"     # apply spillover compensation (see below); omit for none
 # group / dose columns are auto-detected; override with group = "...", dose = "..."
 
 [[analysis]]
@@ -149,17 +150,30 @@ Every parameter is optional and falls back to the top-level config / auto-detect
 **% positive** and quadrant thresholds are set at `positive_percentile` (default
 99th) of the **control** sample's transformed values — use an unstained /
 untreated control. Top-level keys: `out`, `gates`, `gate_names`, `subsample`,
-`per_sample`, `positive_percentile`, and `logicle = { param_t = ..., ... }`.
+`per_sample`, `positive_percentile`, `compensation`, and
+`logicle = { param_t = ..., ... }`.
+
+### Spillover compensation
+
+Spillover between fluorochromes is corrected at load time, **before** the
+logicle transform and all analyses (scatter channels are untouched, so gating is
+unaffected). Set the top-level `compensation` key:
+
+- `compensation = "acquisition"` — use each FCS file's own embedded `$SPILLOVER`
+  matrix (the acquisition compensation).
+- `compensation = "spillover.csv"` — apply an external matrix file (path relative
+  to the config) to every sample.
+- omitted — no compensation.
+
+Compensation is essential for panels whose dyes bleed into each other (e.g.
+Annexin-V-FITC into the 7-AAD channel): without it, single-positive cells are
+misclassified as double-positive, distorting quadrant percentages.
 
 ### Adding a new analysis
 
 Write a function in `analysis.py` decorated with `@register("my_kind")` that
 takes the `AnalysisContext` plus keyword params and writes to `ctx.out_dir`. It
 is then available as `kind = "my_kind"` in any experiment's config.
-
-> Note: this step assumes any spillover **compensation** was already applied (or
-> isn't needed). Compensation from the FCS `$SPILLOVER` matrix is a possible
-> future addition.
 
 ## Library use
 

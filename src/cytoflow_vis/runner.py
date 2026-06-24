@@ -80,8 +80,21 @@ def main(argv=None):
     channels = cfg.get("channels")
     subsample = int(cfg.get("subsample", 20000))
 
+    # Spillover compensation: a keyword (e.g. "acquisition") uses each file's
+    # embedded $SPILLOVER; anything else is an external matrix file (resolved
+    # relative to the config).
+    from cytoflow_vis.io import EMBEDDED_COMPENSATION
+
+    comp = cfg.get("compensation")
+    if comp is not None and str(comp).lower() not in EMBEDDED_COMPENSATION:
+        comp = str(resolve(comp))
+
     print(f"Loading samples from {cfg['sheet']} ...")
-    samples = load_samples(resolve(cfg["sheet"]), resolve(cfg["data"]), subsample=subsample)
+    if comp is not None:
+        print(f"Applying spillover compensation: {comp}")
+    samples = load_samples(
+        resolve(cfg["sheet"]), resolve(cfg["data"]), subsample=subsample, compensation=comp
+    )
     populations = seed_populations(samples)
     print(f"Replaying gates: {', '.join(g.name for g in gate_paths)} ...")
     singlets = apply_saved_gates(populations, gate_paths)
