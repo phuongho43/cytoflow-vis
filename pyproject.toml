@@ -13,6 +13,7 @@ dependencies = [
 [project.scripts]
 gate-cells = "cytoflow_vis.cli:main"
 analyze = "cytoflow_vis.runner:main"
+compute-spillover = "cytoflow_vis.spillover_cli:main"
 
 [build-system]
 requires = ["hatchling"]

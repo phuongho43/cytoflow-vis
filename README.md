@@ -3,7 +3,7 @@
 Interactive gating and visualization for flow cytometry FCS files, built on
 [FlowKit](https://github.com/whitews/FlowKit).
 
-Two commands make up the workflow:
+The workflow is built from these commands:
 
 - **`gate-cells`** — draw a **sequential gating hierarchy** of polygon gates and
   apply it across every sample:
@@ -18,6 +18,10 @@ Two commands make up the workflow:
   Each experiment is described by a TOML file listing the channels and which
   analysis modules to run (logicle histograms, MFI / % positive, 2D density,
   quadrant, dose-response). See [section 4](#4-fluorescence-analysis).
+
+- **`compute-spillover`** — (optional) build a compensation matrix from
+  single-stain controls for data with no embedded `$SPILLOVER`. See
+  [Spillover compensation](#spillover-compensation).
 
 The gating front-end is shared by every experiment; only the `analyze` config
 changes from one experiment to the next.
@@ -168,6 +172,42 @@ unaffected). Set the top-level `compensation` key:
 Compensation is essential for panels whose dyes bleed into each other (e.g.
 Annexin-V-FITC into the 7-AAD channel): without it, single-positive cells are
 misclassified as double-positive, distorting quadrant percentages.
+
+#### Computing a matrix from single-stain controls
+
+If your files have no embedded matrix (e.g. legacy data), build one from
+single-stain controls with `compute-spillover`. **Acquire the controls at the
+same instrument settings (PMT voltages/gains, optical config) as the data** —
+on the Attune, reload the saved instrument settings before running them.
+
+Describe the controls in a CSV mapping each file to its primary detector:
+
+```csv
+filename,channel
+annexin_fitc.fcs,BL1-A
+7aad.fcs,RL1-A
+```
+
+```bash
+uv run compute-spillover --controls controls.csv --data controls/ \
+    --gates results/ --out spillover.csv
+```
+
+The **negative baseline** (`--negative`, default `auto`):
+
+- **in-tube** (gold standard) — stain a **mix of live + positive cells** in each
+  single-stain tube; the tube's own live (negative) cells are the matched
+  baseline, found by an Otsu split on its primary detector. Used automatically
+  when no unstained control is listed. The negative must share the positives'
+  autofluorescence — so for heat-killed positives, the live cells in the same
+  tube are the correct negative.
+- **universal** — add a row with channel `unstained` for a separate
+  universal-negative control; its median sets the baseline for every detector.
+
+`--gates` (optional) applies the cells + singlets gates to the controls — use it
+for **stained-cell** controls so debris/doublets don't skew the medians; omit it
+for beads. Feed the result to any analysis config with
+`compensation = "spillover.csv"`.
 
 ### Adding a new analysis
 
