@@ -145,3 +145,18 @@ def apply_gate(populations: list[dict], vertices, x_channel: str, y_channel: str
         mask = points_in_polygon(df, x_channel, y_channel, vertices)
         gated.append({**p, "events": df[mask]})
     return gated
+
+
+def apply_saved_gates(populations: list[dict], gate_paths) -> list[dict]:
+    """Replay a sequence of saved gate JSON files onto the populations.
+
+    Lets downstream steps (e.g. fluorescence analysis) reconstruct a gated
+    population from the sample sheet plus the gates drawn earlier, without
+    re-clicking. Gates are applied in the order given.
+    """
+    for gpath in gate_paths:
+        gate = load_gate(gpath)
+        populations = apply_gate(
+            populations, gate["vertices"], gate["x_channel"], gate["y_channel"]
+        )
+    return populations

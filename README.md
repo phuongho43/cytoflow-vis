@@ -3,15 +3,20 @@
 Interactive gating and visualization for flow cytometry FCS files, built on
 [FlowKit](https://github.com/whitews/FlowKit).
 
-The `gate-cells` tool draws a **sequential gating hierarchy** of polygon gates
-and applies it across every sample in an experiment:
+Two commands make up the workflow:
 
-1. **cells** — SSC-A vs FSC-A, excluding low-scatter debris.
-2. **singlets** — FSC-H vs FSC-A, keeping the diagonal and excluding
-   doublets/aggregates.
+- **`gate-cells`** — draw a **sequential gating hierarchy** of polygon gates and
+  apply it across every sample:
+  1. **cells** — SSC-A vs FSC-A, excluding low-scatter debris.
+  2. **singlets** — FSC-H vs FSC-A, keeping the diagonal and excluding
+     doublets/aggregates.
 
-Each gate is drawn once on a pooled subsample and filtered from the previous
-stage's population (so the singlet gate is drawn on the cells only).
+  Each gate is drawn once on a pooled subsample and filtered from the previous
+  stage's population (so the singlet gate is drawn on the cells only).
+
+- **`analyze-fluor`** — fluorescence analysis of the gated singlets (logicle
+  transform, histograms by condition, MFI / % positive, 2D density,
+  dose-response). See [section 4](#4-fluorescence-analysis).
 
 ## Install
 
@@ -84,6 +89,44 @@ Pass `--redraw` to re-draw every gate from scratch.
 | `--subsample` | `20000` | Events FlowKit stores per file |
 | `--no-save-events` | off | Skip writing the final per-sample CSVs |
 
+## 4. Fluorescence analysis
+
+Once the gates exist, analyse the fluorescence of the singlet population:
+
+```bash
+uv run analyze-fluor --sheet samples.csv --data data/ --out results/
+```
+
+It replays the saved gates to reconstruct the singlets, applies a **logicle**
+transform to the fluorescence channels (default `BL1-A,RL1-A`), and writes:
+
+| File | Contents |
+|------|----------|
+| `fluor_stats.csv` | Per-sample **MFI** (median, raw scale) and **% positive** per channel, with conditions |
+| `fluor_hist_<channel>.png` | Logicle histograms, one line per sample, coloured by condition |
+| `fluor_2d_density.png` | Faceted BL1-A vs RL1-A logicle density, one panel per sample |
+| `fluor_dose_response.png` | MFI and % positive vs dose, grouped by condition |
+
+**% positive** is computed against a threshold set at the
+`--positive-percentile` (default 99th) of a **control** sample's transformed
+values — so use an unstained / uninduced control. The dose and grouping columns
+are auto-detected from the sample sheet; override with `--dose`, `--group`, and
+`--control`.
+
+### Useful options
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--channels` | `BL1-A,RL1-A` | Fluorescence channels to analyse |
+| `--control` | lowest dose | Sample used to set the + threshold |
+| `--dose` / `--group` | auto | Condition columns for the x-axis / colour |
+| `--positive-percentile` | `99.0` | Control percentile defining "positive" |
+| `--t` `--w` `--m` `--a` | logicle std | Logicle transform parameters |
+
+> Note: this step assumes any spillover **compensation** was already applied (or
+> isn't needed). Compensation from the FCS `$SPILLOVER` matrix is a possible
+> future addition.
+
 ## Library use
 
 The pieces are importable and compose as a population pipeline:
@@ -103,6 +146,17 @@ singlets = apply_gate(cells, singlets_gate["vertices"],
                       singlets_gate["x_channel"], singlets_gate["y_channel"])
 
 # singlets[i]["events"] is the gated DataFrame for sample i.
+```
+
+The same `apply_saved_gates(pops, [".../cells_gate.json", ".../singlets_gate.json"])`
+helper replays a gate sequence in one call. Fluorescence analysis then runs on
+the resulting populations:
+
+```python
+from cytoflow_vis import fluorescence as fl
+
+xform = fl.make_logicle()
+stats, thresholds = fl.compute_stats(singlets, ["BL1-A", "RL1-A"], xform, control_id="ctrl")
 ```
 
 Each gate is also available as a FlowKit `PolygonGate`
