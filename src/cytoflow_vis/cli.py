@@ -128,14 +128,18 @@ def main(argv=None):
         build_flowkit_polygon_gate(stage.name, x, y, vertices)
 
         # Density overlay PNG for this stage (parent population + gate).
+        import matplotlib as mpl
         import matplotlib.pyplot as plt
 
+        from cytoflow_vis.style import rc
+
         ppx, ppy = pool_events(populations, x, y, per_sample=args.per_sample)
-        fig, ax = plt.subplots(figsize=(8, 8))
-        density_plot(ppx, ppy, ax=ax, xlabel=x, ylabel=y, title=f"{stage.name} gate")
-        overlay_polygon(ax, vertices)
-        fig.savefig(out_dir / f"gate_overlay_{stage.name}.png", dpi=120, bbox_inches="tight")
-        plt.close(fig)
+        with mpl.rc_context(rc()):
+            fig, ax = plt.subplots(figsize=(9, 9))
+            density_plot(ppx, ppy, ax=ax, xlabel=x, ylabel=y, title=f"{stage.name} gate", colorbar=True)
+            overlay_polygon(ax, vertices)
+            fig.savefig(out_dir / f"gate_overlay_{stage.name}.png")
+            plt.close(fig)
 
         # Apply: this stage's output becomes the next stage's parent.
         populations = apply_gate(populations, vertices, x, y)
