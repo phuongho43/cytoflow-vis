@@ -39,12 +39,15 @@ def density_plot(
     cmap="turbo",
     clip_percentile: float | None = 99.9,
     colorbar: bool = False,
+    format_ticks: bool = True,
 ) -> plt.Axes:
     """Plot a 2D log-density histogram of ``x`` vs ``y``.
 
     ``clip_percentile`` trims the axis limits to that percentile so a handful of
     extreme events don't compress the interesting region; set to ``None`` to
     show the full range. Set ``colorbar=True`` to annotate the density scale.
+    ``format_ticks`` applies the cytometry K/M scatter-axis labels; set it False
+    for logicle data so the caller can apply biexponential decade ticks.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -73,11 +76,13 @@ def density_plot(
         ax.set_ylim(hist_range[1])
 
     # Scatter channels span 0..~262k; use the cytometry-standard K/M tick
-    # labels (50K, 150K, ...) rather than a scientific ×10^5 offset.
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
-    ax.xaxis.set_major_formatter(FuncFormatter(_si_tick))
-    ax.yaxis.set_major_formatter(FuncFormatter(_si_tick))
+    # labels (50K, 150K, ...) rather than a scientific ×10^5 offset. Skipped for
+    # logicle data, where the caller applies biexponential decade ticks instead.
+    if format_ticks:
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
+        ax.xaxis.set_major_formatter(FuncFormatter(_si_tick))
+        ax.yaxis.set_major_formatter(FuncFormatter(_si_tick))
     ax.set_axisbelow(False)
 
     if colorbar:
@@ -96,6 +101,66 @@ def density_plot(
             cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(v)}"))
             cbar.minorticks_off()
 
+    return ax
+
+
+def _smooth2d(H: np.ndarray, sigma: float) -> np.ndarray:
+    """Separable Gaussian smooth of a 2D histogram (``sigma`` in bin units)."""
+    radius = int(np.ceil(3 * sigma))
+    k = np.exp(-0.5 * (np.arange(-radius, radius + 1) / sigma) ** 2)
+    k /= k.sum()
+    H = np.apply_along_axis(lambda m: np.convolve(m, k, mode="same"), 0, H)
+    H = np.apply_along_axis(lambda m: np.convolve(m, k, mode="same"), 1, H)
+    return H
+
+
+def contour_density(
+    x,
+    y,
+    ax: plt.Axes | None = None,
+    bins: int = 128,
+    sigma: float = 1.6,
+    n_levels: int = 8,
+    span_decades: float = 2.2,
+    cmap: str = "turbo",
+    hist_range=None,
+    outliers: bool = True,
+    outlier_color: str = "#34495E",
+) -> plt.Axes:
+    """Filled density contours with individual outlier dots (the flow standard).
+
+    The events are binned, the 2D histogram Gaussian-smoothed, and drawn as
+    log-spaced filled contours. Events falling below the lowest contour level
+    (rare populations the contours would otherwise hide) are scattered as small
+    dots, so nothing is lost. Operates in whatever units ``x``/``y`` are in
+    (e.g. logicle display); pass ``hist_range`` to fix the binning extent.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if ax is None:
+        _, ax = plt.subplots(figsize=(9, 9))
+
+    H, xe, ye = np.histogram2d(x, y, bins=bins, range=hist_range)
+    Hs = _smooth2d(H, sigma)
+    vmax = float(Hs.max())
+    if vmax <= 0:
+        return ax
+    levels = np.logspace(np.log10(vmax) - span_decades, np.log10(vmax), n_levels)
+    xc = (xe[:-1] + xe[1:]) / 2.0
+    yc = (ye[:-1] + ye[1:]) / 2.0
+
+    if outliers:
+        ix = np.clip(np.digitize(x, xe) - 1, 0, bins - 1)
+        iy = np.clip(np.digitize(y, ye) - 1, 0, bins - 1)
+        is_outlier = Hs[ix, iy] < levels[0]
+        ax.scatter(
+            x[is_outlier], y[is_outlier], s=3, c=outlier_color, alpha=0.5,
+            linewidths=0, rasterized=True, zorder=1,
+        )
+
+    Z = np.ma.masked_less_equal(Hs.T, 0)  # keep LogNorm off empty bins
+    ax.contourf(xc, yc, Z, levels=levels, cmap=cmap, norm=LogNorm(), extend="max", zorder=2)
+    ax.set_axisbelow(False)
     return ax
 
 

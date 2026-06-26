@@ -11,7 +11,7 @@ that takes the context plus keyword parameters and writes its outputs to
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import matplotlib as mpl
@@ -35,6 +35,12 @@ class AnalysisContext:
     dose_col: str | None  # default numeric condition for dose-response
     per_sample: int = 20000
     positive_percentile: float = 99.0
+    # Map a flow channel to the biology it reports (e.g. "BL1-A" -> "GFP"); used
+    # for axis labels across all plots. Channels not in the map show as-is.
+    channel_labels: dict = field(default_factory=dict)
+
+    def label_for(self, channel: str) -> str:
+        return self.channel_labels.get(channel, channel)
 
 
 # -- registry -----------------------------------------------------------------
@@ -130,13 +136,15 @@ def _mfi_pct(ctx, channels=None, control=None, positive_percentile=None, out="fl
 
 @register("histograms")
 def _histograms(ctx, channels=None, group=None, group_label=None, colors=None,
-                control=None, positive_percentile=None, per_sample=None):
+                replicate_mode="representative", control=None,
+                positive_percentile=None, per_sample=None):
     """One logicle ridgeline PNG per channel, one ridge per condition value.
 
     ``group`` is the condition column to split on (auto-detected if omitted);
     ``group_label`` sets the y-axis title with units (e.g. ``"Dose (mM)"``).
     Colours auto-pick by data type (numeric -> sequential ramp, string ->
     categorical palette); ``colors`` overrides with an explicit list.
+    ``replicate_mode`` is "representative" (one replicate per ridge) or "pool".
     """
     channels = channels or ctx.channels
     group = group if group is not None else ctx.group_col
@@ -154,8 +162,9 @@ def _histograms(ctx, channels=None, group=None, group_label=None, colors=None,
             fig, ax = plt.subplots(figsize=(9, height))
             fl.plot_histograms(
                 ctx.populations, ch, ctx.xform, ax=ax, group_col=group,
-                group_label=group_label, colors=colors, per_sample=per_sample,
-                threshold=thresholds.get(ch),
+                group_label=group_label, channel_label=ctx.label_for(ch),
+                colors=colors, per_sample=per_sample,
+                threshold=thresholds.get(ch), replicate_mode=replicate_mode,
             )
             path = ctx.out_dir / f"hist_{_safe(ch)}.png"
             fig.savefig(path)
@@ -165,15 +174,28 @@ def _histograms(ctx, channels=None, group=None, group_label=None, colors=None,
 
 
 @register("density_2d")
-def _density_2d(ctx, x=None, y=None, per_sample=None, out="density_2d.png"):
-    """Faceted 2D logicle density, one panel per sample."""
+def _density_2d(ctx, x=None, y=None, per_sample=None, qc=False, unit=None,
+                xlabel=None, ylabel=None, out="density_2d.png"):
+    """Faceted 2D logicle density.
+
+    One panel per condition (representative replicate) by default; set
+    ``qc = true`` for a QC view with one panel per sample. ``unit`` is appended
+    to each panel's condition value in the title (e.g. ``"mM"`` -> ``"5 mM"``).
+    Axis labels default to the channel-label map (e.g. "BL1-A" -> "GFP");
+    ``xlabel`` / ``ylabel`` override per plot.
+    """
     x = x or ctx.channels[0]
     y = y or (ctx.channels[1] if len(ctx.channels) > 1 else ctx.channels[0])
     per_sample = per_sample or ctx.per_sample
-    fig = fl.plot_2d_density(ctx.populations, x, y, ctx.xform, per_sample=per_sample)
-    path = ctx.out_dir / out
-    fig.savefig(path, dpi=110, bbox_inches="tight")
-    plt.close(fig)
+    mode = "all" if qc else "representative"
+    xlabel = xlabel or ctx.label_for(x)
+    ylabel = ylabel or ctx.label_for(y)
+    with mpl.rc_context(rc(scale=0.5)):  # small facet panels -> lighter weight
+        fig = fl.plot_2d_density(ctx.populations, x, y, ctx.xform, per_sample=per_sample,
+                                 mode=mode, unit=unit, xlabel=xlabel, ylabel=ylabel)
+        path = ctx.out_dir / out
+        fig.savefig(path)
+        plt.close(fig)
     return f"density_2d -> {path.name}"
 
 

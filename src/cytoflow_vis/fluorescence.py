@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import FixedFormatter, FixedLocator
 
-from cytoflow_vis.plotting import density_plot
+from cytoflow_vis.plotting import contour_density, density_plot
 from cytoflow_vis.style import CATEGORICAL_PALETTE, INK, sequential_colors
 
 DEFAULT_FLUOR_CHANNELS = ["BL1-A", "RL1-A"]
@@ -71,6 +71,68 @@ def _subsample(values: np.ndarray, n: int, rng) -> np.ndarray:
     if n is None or len(values) <= n:
         return values
     return values[rng.choice(len(values), size=n, replace=False)]
+
+
+# --- Replicate handling ------------------------------------------------------
+# Samples sharing every condition except the replicate column are replicates of
+# one condition. Display plots show a single *representative* replicate (the one
+# whose signal is closest to the group median); quantitative plots aggregate
+# across replicates. ``DEFAULT_REPLICATE_COL`` is the sample-sheet column.
+DEFAULT_REPLICATE_COL = "replicate"
+
+
+def _varying_conditions(populations: list[dict], replicate_col: str) -> list[str]:
+    keys = [k for k in populations[0]["conditions"] if k != replicate_col]
+    return [k for k in keys if len({p["conditions"][k] for p in populations}) > 1]
+
+
+def representative_population(pops: list[dict], channels: list[str], xform) -> dict:
+    """The replicate whose median signal is closest to the group median.
+
+    Signal is summarised as the mean over ``channels`` of each replicate's
+    median logicle value, so the chosen panel is a typical, not extreme, one.
+    """
+    if len(pops) == 1:
+        return pops[0]
+    scores = []
+    for p in pops:
+        meds = [
+            float(np.median(xform.apply(p["events"][ch].to_numpy(dtype=float))))
+            for ch in channels
+            if ch in p["events"].columns
+        ]
+        scores.append(float(np.mean(meds)) if meds else 0.0)
+    scores = np.asarray(scores)
+    return pops[int(np.argmin(np.abs(scores - float(np.median(scores)))))]
+
+
+def condition_groups(
+    populations: list[dict],
+    replicate_col: str = DEFAULT_REPLICATE_COL,
+    unit: str | None = None,
+) -> list[tuple[str, list[dict]]]:
+    """Group populations by condition (all conditions except the replicate col).
+
+    Returns an ordered list of ``(label, replicate_pops)`` — one entry per
+    distinct condition, sorted by condition value. With a single varying
+    condition the label is its bare value plus an optional ``unit`` (e.g.
+    ``"5 mM"``); with several it joins the values.
+    """
+    varying = _varying_conditions(populations, replicate_col)
+    groups: dict = {}
+    for p in populations:
+        key = tuple(p["conditions"][k] for k in varying)
+        groups.setdefault(key, []).append(p)
+    out = []
+    for key, pops in sorted(groups.items(), key=lambda kv: (kv[0] is None, kv[0])):
+        if not varying:
+            label = pops[0]["sample_id"]
+        elif len(varying) == 1:
+            label = f"{key[0]} {unit}" if unit else f"{key[0]}"
+        else:
+            label = ", ".join(str(v) for v in key)
+        out.append((label, pops))
+    return out
 
 
 def control_thresholds(
@@ -159,19 +221,23 @@ def plot_histograms(
     ax: plt.Axes | None = None,
     group_col: str | None = None,
     group_label: str | None = None,
+    channel_label: str | None = None,
     colors: list | None = None,
     bins: int = 120,
     per_sample: int = 20000,
     threshold: float | None = None,
     overlap: float = 1.7,
     smooth: float = 1.5,
+    replicate_mode: str = "representative",
     seed: int = 0,
 ) -> plt.Axes:
     """Ridgeline of ``channel`` over a biexponential logicle x-axis.
 
-    One offset, filled ridge per ``group_col`` value (replicates pooled), or per
-    sample when no group is given, coloured from the signature ``PALETTE`` and
-    outlined in ink. Each ridge's tick is its bare condition value (number or
+    One offset, filled ridge per ``group_col`` value (or per sample when no
+    group is given), coloured from the signature palettes and outlined in ink.
+    ``replicate_mode`` decides how replicates of a group combine into its ridge:
+    ``"representative"`` (default) uses the representative replicate, ``"pool"``
+    concatenates them. Each ridge's tick is its bare condition value (number or
     string); ``group_label`` names the y-axis (e.g. ``"Dose (mM)"``, defaulting
     to ``group_col``). When ``threshold`` is given, the positive gate is drawn
     and each ridge is annotated with its % positive. Expects the ``rc()`` context.
@@ -180,7 +246,7 @@ def plot_histograms(
     if ax is None:
         _, ax = plt.subplots(figsize=(9, 8))
 
-    # Collect events per ridge: pool replicates sharing a group value.
+    # Collect populations per ridge (samples sharing a group value = replicates).
     def key_of(p):
         return p["conditions"].get(group_col) if group_col else p["sample_id"]
 
@@ -210,7 +276,11 @@ def plot_histograms(
         baseline = (n - 1 - rank) * step
         baselines.append(baseline)
         color = colors[rank]
-        raw = np.concatenate([g["events"][channel].to_numpy(dtype=float) for g in grouped[key]])
+        reps = grouped[key]
+        if replicate_mode == "pool":
+            raw = np.concatenate([g["events"][channel].to_numpy(dtype=float) for g in reps])
+        else:  # representative replicate for this group
+            raw = representative_population(reps, [channel], xform)["events"][channel].to_numpy(dtype=float)
         xf = xform.apply(_subsample(raw, per_sample, rng))
 
         h, edges = np.histogram(xf, bins=bins, range=(_LOGICLE_LO, _LOGICLE_HI), density=True)
@@ -242,7 +312,7 @@ def plot_histograms(
     ax.set_yticklabels([str(k) for k in order])
     ax.tick_params(axis="y", length=0)
     ax.spines["left"].set_visible(False)
-    ax.set_xlabel(channel)
+    ax.set_xlabel(channel_label or channel)
     ax.set_ylabel(group_label or group_col or "Sample")
     return ax
 
@@ -255,27 +325,56 @@ def plot_2d_density(
     per_sample: int = 20000,
     ncols: int = 3,
     bins: int = 150,
+    panel: float = 4.5,
+    mode: str = "representative",
+    replicate_col: str = DEFAULT_REPLICATE_COL,
+    unit: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
     seed: int = 0,
 ) -> plt.Figure:
-    """Faceted logicle 2D density (one panel per sample)."""
+    """Faceted logicle 2D density.
+
+    ``mode="representative"`` (default) shows one panel per condition, picking
+    the representative replicate; ``mode="all"`` is a QC view with one panel per
+    sample. Panel titles are the bare condition value plus an optional ``unit``
+    (e.g. ``"5 mM"``). Panels share biexponential logicle axes; only the outer
+    panels carry tick labels, and the channel names are shared figure-level x/y
+    labels. Expects the ``rc()`` context (reduced ``scale`` for small panels).
+    """
     rng = np.random.default_rng(seed)
-    n = len(populations)
+    if mode == "all":
+        panels = [(p["sample_id"], p) for p in populations]
+    else:
+        panels = [
+            (label, representative_population(pops, [x_channel, y_channel], xform))
+            for label, pops in condition_groups(populations, replicate_col, unit=unit)
+        ]
+    n = len(panels)
     ncols = min(ncols, n)
     nrows = int(np.ceil(n / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows), squeeze=False)
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(panel * ncols, panel * nrows),
+        squeeze=False, sharex=True, sharey=True, layout="constrained",
+    )
+    fig.get_layout_engine().set(hspace=0.10)  # breathing room between rows
     flat = axes.flatten()
-    for ax, p in zip(flat, populations):
+    hist_range = [[_LOGICLE_LO, _LOGICLE_HI], [_LOGICLE_LO, _LOGICLE_HI]]
+    for ax, (label, p) in zip(flat, panels):
         x = xform.apply(_subsample(p["events"][x_channel].to_numpy(dtype=float), per_sample, rng))
         y = xform.apply(_subsample(p["events"][y_channel].to_numpy(dtype=float), per_sample, rng))
-        density_plot(
-            x, y, ax=ax, xlabel=f"{x_channel} (logicle)", ylabel=f"{y_channel} (logicle)",
-            title=p["sample_id"], bins=bins, clip_percentile=None,
-        )
+        contour_density(x, y, ax=ax, bins=bins, hist_range=hist_range)
+        ax.set_title(label, pad=3)  # sits right atop its panel
         ax.set_xlim(_LOGICLE_LO, _LOGICLE_HI)
         ax.set_ylim(_LOGICLE_LO, _LOGICLE_HI)
+        logicle_axis(ax, xform, which="x")
+        logicle_axis(ax, xform, which="y")
+        ax.label_outer()  # only outer panels keep tick labels
     for ax in flat[n:]:
         ax.axis("off")
-    fig.tight_layout()
+    label_kw = dict(fontsize=plt.rcParams["axes.labelsize"], fontweight="bold")
+    fig.supxlabel(xlabel or x_channel, **label_kw)
+    fig.supylabel(ylabel or y_channel, **label_kw)
     return fig
 
 

@@ -120,6 +120,7 @@ def main(argv=None):
         dose_col=dose_col,
         per_sample=int(cfg.get("per_sample", 20000)),
         positive_percentile=float(cfg.get("positive_percentile", 99.0)),
+        channel_labels=cfg.get("channel_labels", {}),
     )
 
     analyses = cfg.get("analysis", [])
