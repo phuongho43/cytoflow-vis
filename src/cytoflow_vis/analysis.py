@@ -14,10 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
 
 from cytoflow_vis import fluorescence as fl
+from cytoflow_vis.style import rc
 
 
 @dataclass
@@ -127,8 +129,15 @@ def _mfi_pct(ctx, channels=None, control=None, positive_percentile=None, out="fl
 
 
 @register("histograms")
-def _histograms(ctx, channels=None, group=None, control=None, positive_percentile=None, per_sample=None):
-    """One logicle histogram PNG per channel, coloured by condition."""
+def _histograms(ctx, channels=None, group=None, group_label=None, colors=None,
+                control=None, positive_percentile=None, per_sample=None):
+    """One logicle ridgeline PNG per channel, one ridge per condition value.
+
+    ``group`` is the condition column to split on (auto-detected if omitted);
+    ``group_label`` sets the y-axis title with units (e.g. ``"Dose (mM)"``).
+    Colours auto-pick by data type (numeric -> sequential ramp, string ->
+    categorical palette); ``colors`` overrides with an explicit list.
+    """
     channels = channels or ctx.channels
     group = group if group is not None else ctx.group_col
     control = control if control is not None else ctx.control_id
@@ -137,16 +146,20 @@ def _histograms(ctx, channels=None, group=None, control=None, positive_percentil
     thresholds = (
         fl.control_thresholds(ctx.populations, channels, ctx.xform, control, pct) if control else {}
     )
+    n = fl.n_groups(ctx.populations, group)
+    height = max(4.0, 1.05 * n + 1.8)  # ridgeline grows with the number of rows
     written = []
     for ch in channels:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        fl.plot_histograms(
-            ctx.populations, ch, ctx.xform, ax=ax, group_col=group,
-            per_sample=per_sample, threshold=thresholds.get(ch),
-        )
-        path = ctx.out_dir / f"hist_{_safe(ch)}.png"
-        fig.savefig(path, dpi=120, bbox_inches="tight")
-        plt.close(fig)
+        with mpl.rc_context(rc()):
+            fig, ax = plt.subplots(figsize=(9, height))
+            fl.plot_histograms(
+                ctx.populations, ch, ctx.xform, ax=ax, group_col=group,
+                group_label=group_label, colors=colors, per_sample=per_sample,
+                threshold=thresholds.get(ch),
+            )
+            path = ctx.out_dir / f"hist_{_safe(ch)}.png"
+            fig.savefig(path)
+            plt.close(fig)
         written.append(path.name)
     return "histograms -> " + ", ".join(written)
 

@@ -8,12 +8,33 @@ larger ``scale`` for bigger multi-panel figures.
 
 from __future__ import annotations
 
+import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
 INK = "#212121"
 
-# The ezplot signature palette (purple-forward), reused for condition colours.
+# The ezplot signature palette (purple-forward); vivid, kept for talks/overrides.
 PALETTE = ["#8069EC", "#EA822C", "#2ECC71", "#D143A4", "#F1C40F", "#34495E", "#648FFF"]
+
+# Default for *categorical* conditions (cell lines, genotypes): the Okabe-Ito
+# qualitative set — the colourblind-safe standard endorsed by Nature/Cell/PLOS.
+# Black is omitted so fills never clash with the ink outline.
+CATEGORICAL_PALETTE = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442"]
+
+# Sequential ramp for *ordered/numeric* conditions (dose, light, time): a muted
+# gray low end rising through the Okabe-Ito sky blue (#56B4E9) to the Okabe-Ito
+# deep blue (#0072B2), so colour reinforces magnitude and harmonises with the
+# categorical palette. Colourblind- and grayscale-safe (monotonic luminance).
+SEQUENTIAL_CMAP = LinearSegmentedColormap.from_list(
+    "cyto_gray_blue", ["#aab2bb", "#8fc6ea", "#56B4E9", "#0072B2"]
+)
+
+
+def sequential_colors(n: int) -> list:
+    """``n`` colours sampled low->high across :data:`SEQUENTIAL_CMAP`."""
+    if n <= 1:
+        return [SEQUENTIAL_CMAP(1.0)]
+    return [SEQUENTIAL_CMAP(t) for t in np.linspace(0.0, 1.0, n)]
 
 # On-brand density ramp: sparse bins fade toward white (so single-event noise
 # stays quiet), the body rises through the palette purple, and the dense core

@@ -12,16 +12,47 @@ condition, 2D channel-vs-channel density, and dose-response plots.
 from __future__ import annotations
 
 import flowkit as fk
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FixedFormatter, FixedLocator
 
 from cytoflow_vis.plotting import density_plot
+from cytoflow_vis.style import CATEGORICAL_PALETTE, INK, sequential_colors
 
 DEFAULT_FLUOR_CHANNELS = ["BL1-A", "RL1-A"]
 
 # Logicle display range (a touch below 0 to show the negative population).
 _LOGICLE_LO, _LOGICLE_HI = -0.15, 1.05
+
+# Decades labelled on a logicle (biexponential) axis, the cytometry convention.
+_LOGICLE_DECADES = [100, 1000, 10000, 100000]
+
+
+def logicle_axis(ax, xform, which: str = "x", lo: float = _LOGICLE_LO, hi: float = _LOGICLE_HI) -> None:
+    """Relabel a logicle display axis with biexponential decade ticks.
+
+    The events are plotted in logicle *display* units (~[0, 1]); this maps the
+    ticks back to raw values (0, 10^2 ... 10^5) at their display positions, with
+    minor ticks at the 2-9 subdivisions, so the axis reads like FlowJo/Attune.
+    """
+    major_raw = np.array([0, *_LOGICLE_DECADES], dtype=float)
+    minor_raw = np.array(
+        [k * d for d in [10, *_LOGICLE_DECADES] for k in range(2, 10)], dtype=float
+    )
+    major_pos = xform.apply(major_raw)
+    minor_pos = xform.apply(minor_raw)
+    labels = ["0", *[f"$10^{int(round(np.log10(d)))}$" for d in _LOGICLE_DECADES]]
+
+    in_range = (major_pos >= lo) & (major_pos <= hi)
+    major_pos, labels = major_pos[in_range], [l for l, keep in zip(labels, in_range) if keep]
+    minor_pos = minor_pos[(minor_pos >= lo) & (minor_pos <= hi)]
+
+    axis = ax.xaxis if which == "x" else ax.yaxis
+    axis.set_major_locator(FixedLocator(major_pos))
+    axis.set_major_formatter(FixedFormatter(labels))
+    axis.set_minor_locator(FixedLocator(minor_pos))
 
 
 def make_logicle(
@@ -96,45 +127,123 @@ def compute_stats(
     return pd.DataFrame(rows), thresholds
 
 
+def _smooth(h: np.ndarray, sigma_bins: float) -> np.ndarray:
+    """Gaussian smooth of a 1D histogram (``sigma_bins`` in bin units).
+
+    Edge-corrected: the kernel is renormalised by its own truncated weight near
+    the array ends, so the first/last bins are not attenuated. ``sigma_bins <= 0``
+    disables smoothing.
+    """
+    if not sigma_bins or sigma_bins <= 0:
+        return h
+    radius = int(np.ceil(3 * sigma_bins))
+    x = np.arange(-radius, radius + 1)
+    k = np.exp(-0.5 * (x / sigma_bins) ** 2)
+    k /= k.sum()
+    num = np.convolve(h, k, mode="same")
+    denom = np.convolve(np.ones_like(h), k, mode="same")  # edge correction
+    return num / denom
+
+
+def n_groups(populations: list[dict], group_col: str | None) -> int:
+    """Number of ridges a histogram of these populations will draw."""
+    if group_col:
+        return len({p["conditions"].get(group_col) for p in populations})
+    return len(populations)
+
+
 def plot_histograms(
     populations: list[dict],
     channel: str,
     xform,
     ax: plt.Axes | None = None,
     group_col: str | None = None,
-    bins: int = 200,
+    group_label: str | None = None,
+    colors: list | None = None,
+    bins: int = 120,
     per_sample: int = 20000,
     threshold: float | None = None,
+    overlap: float = 1.7,
+    smooth: float = 1.5,
     seed: int = 0,
 ) -> plt.Axes:
-    """Overlaid logicle histograms of ``channel``, one line per sample."""
+    """Ridgeline of ``channel`` over a biexponential logicle x-axis.
+
+    One offset, filled ridge per ``group_col`` value (replicates pooled), or per
+    sample when no group is given, coloured from the signature ``PALETTE`` and
+    outlined in ink. Each ridge's tick is its bare condition value (number or
+    string); ``group_label`` names the y-axis (e.g. ``"Dose (mM)"``, defaulting
+    to ``group_col``). When ``threshold`` is given, the positive gate is drawn
+    and each ridge is annotated with its % positive. Expects the ``rc()`` context.
+    """
     rng = np.random.default_rng(seed)
     if ax is None:
-        _, ax = plt.subplots(figsize=(8, 6))
+        _, ax = plt.subplots(figsize=(9, 8))
 
-    def sort_key(p):
-        val = p["conditions"].get(group_col) if group_col else p["sample_id"]
-        return (val is None, val)
+    # Collect events per ridge: pool replicates sharing a group value.
+    def key_of(p):
+        return p["conditions"].get(group_col) if group_col else p["sample_id"]
 
-    pops = sorted(populations, key=sort_key)
-    cmap = plt.get_cmap("viridis")
-    for i, p in enumerate(pops):
-        raw = _subsample(p["events"][channel].to_numpy(dtype=float), per_sample, rng)
-        xf = xform.apply(raw)
-        color = cmap(i / max(1, len(pops) - 1))
-        label = p["sample_id"]
-        if group_col:
-            label = f"{p['sample_id']} ({group_col}={p['conditions'].get(group_col)})"
-        ax.hist(
-            xf, bins=bins, range=(_LOGICLE_LO, _LOGICLE_HI), histtype="step",
-            density=True, color=color, lw=1.5, label=label,
+    grouped: dict = {}
+    for p in populations:
+        grouped.setdefault(key_of(p), []).append(p)
+    order = sorted(grouped, key=lambda v: (v is None, v))
+    n = len(order)
+    step = 1.0
+    baselines = []
+
+    # Colour by data type: ordered/numeric conditions get the sequential ramp,
+    # categorical (string) conditions get the categorical palette. ``colors``
+    # overrides this when given.
+    if colors is None:
+        numeric = all(
+            isinstance(v, (int, float, np.number)) and not isinstance(v, bool) for v in order
         )
+        colors = (
+            sequential_colors(n)
+            if numeric
+            else [CATEGORICAL_PALETTE[i % len(CATEGORICAL_PALETTE)] for i in range(n)]
+        )
+
+    # Draw top row first; later (lower) rows get higher zorder so they occlude.
+    for rank, key in enumerate(order):
+        baseline = (n - 1 - rank) * step
+        baselines.append(baseline)
+        color = colors[rank]
+        raw = np.concatenate([g["events"][channel].to_numpy(dtype=float) for g in grouped[key]])
+        xf = xform.apply(_subsample(raw, per_sample, rng))
+
+        h, edges = np.histogram(xf, bins=bins, range=(_LOGICLE_LO, _LOGICLE_HI), density=True)
+        centers = (edges[:-1] + edges[1:]) / 2.0
+        h = _smooth(h, smooth)
+        h = h / h.max() if h.max() > 0 else h  # per-ridge height normalisation
+        curve = baseline + h * overlap
+        z = 2 + rank
+
+        ax.fill_between(centers, baseline, curve, facecolor=color, alpha=0.85,
+                        edgecolor="none", zorder=z)
+        ax.plot(centers, curve, color=INK, lw=1.8, zorder=z,
+                path_effects=[pe.Stroke(linewidth=3.2, foreground="white"), pe.Normal()])
+        ax.hlines(baseline, _LOGICLE_LO, _LOGICLE_HI, color=INK, lw=1.0, zorder=z)
+
+        if threshold is not None:
+            pct = 100.0 * float(np.mean(xf > threshold))
+            ax.text(_LOGICLE_HI - 0.01, baseline + 0.12 * overlap, f"{pct:.0f}%",
+                    ha="right", va="bottom", color=color, fontweight="bold",
+                    fontsize=plt.rcParams["xtick.labelsize"], zorder=n + 5)
+
     if threshold is not None:
-        ax.axvline(threshold, color="k", ls="--", lw=1, label="+ threshold")
-    ax.set_xlabel(f"{channel} (logicle)")
-    ax.set_ylabel("density")
-    ax.set_title(f"{channel} distribution by sample")
-    ax.legend(fontsize=8)
+        ax.axvline(threshold, color=INK, ls=(0, (4, 3)), lw=2.5, zorder=n + 4)
+
+    logicle_axis(ax, xform, which="x")
+    ax.set_xlim(_LOGICLE_LO, _LOGICLE_HI)
+    ax.set_ylim(-0.25, (n - 1) * step + overlap + 0.35)
+    ax.set_yticks(baselines)
+    ax.set_yticklabels([str(k) for k in order])
+    ax.tick_params(axis="y", length=0)
+    ax.spines["left"].set_visible(False)
+    ax.set_xlabel(channel)
+    ax.set_ylabel(group_label or group_col or "Sample")
     return ax
 
 
