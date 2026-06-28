@@ -775,8 +775,10 @@ def plot_titer(
     mean_titer: float | None = None,
     volume_label: str | None = None,
 ) -> plt.Axes:
-    """Diagnostic titer plot: per-well TU/mL vs virus volume (both log axes).
+    """Diagnostic titer plot: per-well TU/mL (log y) vs virus dilution.
 
+    The x-axis is categorical — one evenly-spaced, labelled tick per dilution, so
+    you read each well's titer off its actual volume instead of a log scale.
     In-range wells (the single-integration regime) are solid accent points;
     out-of-range wells are faint open points so it is clear why they were
     excluded. The dashed line marks ``mean_titer`` (the reported value): in a
@@ -784,20 +786,28 @@ def plot_titer(
     with volume signals the linear-range assumption is breaking down. Expects the
     ``rc()`` context.
     """
-    df = titer_df[titer_df["titer"].notna()]
+    df = titer_df[titer_df["titer"].notna()].copy()
+    df["_vol"] = pd.to_numeric(df[volume_col], errors="coerce")
+    df = df.sort_values("_vol")
     accent = CATEGORICAL_PALETTE[0]
-    out = df[~df["in_range"]]
-    inr = df[df["in_range"]]
-    ax.scatter(out[volume_col], out["titer"], s=90, facecolors="none",
+    # Categorical x: one slot per distinct dilution, in ascending volume order.
+    vols = list(dict.fromkeys(df["_vol"]))
+    x = df["_vol"].map({v: i for i, v in enumerate(vols)}).to_numpy()
+    y = df["titer"].to_numpy()
+    inr = df["in_range"].to_numpy()
+    ax.scatter(x[~inr], y[~inr], s=90, facecolors="none",
                edgecolors="#9aa0a6", linewidths=2.5, zorder=3, label="excluded")
-    ax.scatter(inr[volume_col], inr["titer"], s=110, color=accent,
+    ax.scatter(x[inr], y[inr], s=110, color=accent,
                edgecolors="white", linewidths=1.5, zorder=4, label="in linear range")
     if mean_titer is not None and np.isfinite(mean_titer):
         ax.axhline(mean_titer, color=INK, ls=(0, (4, 3)), lw=2.5, zorder=2)
         ax.text(0.99, mean_titer, f" mean {mean_titer:.2e} TU/mL", transform=ax.get_yaxis_transform(),
                 ha="right", va="bottom", color=INK, fontweight="bold",
                 fontsize=plt.rcParams["xtick.labelsize"])
-    ax.set_xscale("log")
+    ax.set_xticks(range(len(vols)))
+    ax.set_xticklabels([f"{v:g}" for v in vols])
+    if vols:
+        ax.set_xlim(-0.5, len(vols) - 0.5)
     ax.set_yscale("log")
     ax.set_xlabel(volume_label or volume_col)
     ax.set_ylabel("Titer (TU/mL)")
