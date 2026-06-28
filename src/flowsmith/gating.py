@@ -39,7 +39,7 @@ def draw_polygon_gate(
     import matplotlib.pyplot as plt
     from matplotlib.widgets import PolygonSelector
 
-    from cytoflow_vis.plotting import density_plot
+    from flowsmith.plotting import density_plot
 
     fig, ax = plt.subplots(figsize=(8, 8))
     density_plot(

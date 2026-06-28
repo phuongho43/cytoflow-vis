@@ -1,7 +1,7 @@
 # Roadmap (tentative)
 
 A loose, prioritized list of analyses and visualizations that are common in
-flow-cytometry figures (incl. Cell/Nature/Science) and that `cytoflow-vis` does
+flow-cytometry figures (incl. Cell/Nature/Science) and that `flowsmith` does
 not yet cover. Priorities are weighted toward this project's scope — conventional
 / few-colour immunoengineering flow (CAR-T, reporters, titrations) — rather than
 high-parameter spectral or CyTOF panels. Nothing here is committed work; it's a

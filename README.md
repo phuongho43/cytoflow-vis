@@ -1,4 +1,4 @@
-# cytoflow-vis
+# flowsmith
 
 Interactive gating and visualization for flow cytometry FCS files, built on
 [FlowKit](https://github.com/whitews/FlowKit).
@@ -227,7 +227,7 @@ is then available as `kind = "my_kind"` in any experiment's config.
 The pieces are importable and compose as a population pipeline:
 
 ```python
-from cytoflow_vis import load_samples, seed_populations, apply_gate, load_gate
+from flowsmith import load_samples, seed_populations, apply_gate, load_gate
 
 samples = load_samples("samples.csv", "data/")
 pops = seed_populations(samples)            # all events, ungated
@@ -248,7 +248,7 @@ helper replays a gate sequence in one call. Fluorescence analysis then runs on
 the resulting populations:
 
 ```python
-from cytoflow_vis import fluorescence as fl
+from flowsmith import fluorescence as fl
 
 xform = fl.make_logicle()
 stats, thresholds = fl.compute_stats(singlets, ["BL1-A", "RL1-A"], xform, control_id="ctrl")

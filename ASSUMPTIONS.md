@@ -1,6 +1,6 @@
 # Analysis assumptions & caveats
 
-A living record of the assumptions baked into `cytoflow-vis`'s analyses, so that
+A living record of the assumptions baked into `flowsmith`'s analyses, so that
 outputs are interpreted correctly and reported honestly in figure legends /
 methods. Add to this file whenever a new analysis introduces an assumption.
 

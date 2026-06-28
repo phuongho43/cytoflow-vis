@@ -60,10 +60,10 @@ def main(argv=None):
 
     matplotlib.use("Agg")  # non-interactive; render straight to PNG
 
-    from cytoflow_vis import analysis as an
-    from cytoflow_vis import fluorescence as fl
-    from cytoflow_vis.gating import apply_saved_gates, seed_populations
-    from cytoflow_vis.io import load_samples
+    from flowsmith import analysis as an
+    from flowsmith import fluorescence as fl
+    from flowsmith.gating import apply_saved_gates, seed_populations
+    from flowsmith.io import load_samples
 
     if "sheet" not in cfg or "data" not in cfg:
         raise SystemExit("config must define 'sheet' and 'data'.")
@@ -83,7 +83,7 @@ def main(argv=None):
     # Spillover compensation: a keyword (e.g. "acquisition") uses each file's
     # embedded $SPILLOVER; anything else is an external matrix file (resolved
     # relative to the config).
-    from cytoflow_vis.io import EMBEDDED_COMPENSATION
+    from flowsmith.io import EMBEDDED_COMPENSATION
 
     comp = cfg.get("compensation")
     if comp is not None and str(comp).lower() not in EMBEDDED_COMPENSATION:

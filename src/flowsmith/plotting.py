@@ -2,7 +2,7 @@
 
 At 10K-100K events a raw scatter is hopelessly overplotted, so we bin the
 events into a 2D histogram and colour by log density. Styling follows the
-shared signature look in :mod:`cytoflow_vis.style`.
+shared signature look in :mod:`flowsmith.style`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import numpy as np
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 
-from cytoflow_vis.style import INK
+from flowsmith.style import INK
 
 
 def _si_tick(value, _pos=None) -> str:

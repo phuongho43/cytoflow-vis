@@ -18,8 +18,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from cytoflow_vis import fluorescence as fl
-from cytoflow_vis.style import INK, rc
+from flowsmith import fluorescence as fl
+from flowsmith.style import INK, rc
 
 
 @dataclass

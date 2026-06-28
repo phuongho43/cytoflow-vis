@@ -49,10 +49,10 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
 
-    from cytoflow_vis import fluorescence as fl
-    from cytoflow_vis import spillover as sp
-    from cytoflow_vis.gating import apply_saved_gates, seed_populations
-    from cytoflow_vis.io import load_samples
+    from flowsmith import fluorescence as fl
+    from flowsmith import spillover as sp
+    from flowsmith.gating import apply_saved_gates, seed_populations
+    from flowsmith.io import load_samples
 
     print(f"Loading controls from {args.controls} ...")
     samples = load_samples(args.controls, args.data, subsample=args.subsample)

@@ -88,7 +88,7 @@ def main(argv=None):
     if need_draw:
         matplotlib.use("QtAgg")
 
-    from cytoflow_vis.gating import (
+    from flowsmith.gating import (
         apply_gate,
         build_flowkit_polygon_gate,
         draw_polygon_gate,
@@ -96,8 +96,8 @@ def main(argv=None):
         save_gate,
         seed_populations,
     )
-    from cytoflow_vis.io import load_samples
-    from cytoflow_vis.plotting import density_plot, overlay_polygon
+    from flowsmith.io import load_samples
+    from flowsmith.plotting import density_plot, overlay_polygon
 
     print(f"Loading samples from {args.sheet} ...")
     samples = load_samples(args.sheet, args.data, subsample=args.subsample)
@@ -131,7 +131,7 @@ def main(argv=None):
         import matplotlib as mpl
         import matplotlib.pyplot as plt
 
-        from cytoflow_vis.style import rc
+        from flowsmith.style import rc
 
         ppx, ppy = pool_events(populations, x, y, per_sample=args.per_sample)
         with mpl.rc_context(rc()):

@@ -74,25 +74,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cytoflow-vis"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "flowkit" },
-    { name = "matplotlib" },
-    { name = "pyside6" },
-    { name = "scipy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flowkit", specifier = ">=1.3.2" },
-    { name = "matplotlib", specifier = ">=3.11.0" },
-    { name = "pyside6", specifier = ">=6.11.1" },
-    { name = "scipy", specifier = ">=1.11" },
-]
-
-[[package]]
 name = "flowio"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -122,6 +103,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fd/fb/f45df7ccb6efd340e826a4ef2e181e9c1b9ce94da87e03853c6cb47ca05f/flowkit-1.3.2.tar.gz", hash = "sha256:706b965e6af0e841b39aed83f5e5aba6a8bad6eb145f44be9bb7ccaea3e5db8f", size = 106077, upload-time = "2026-03-26T01:34:30.069Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fa/b4/6fa6de82cd9cefd9a317237d19612438a5a3b1b7168eb2333a11b4e34b92/flowkit-1.3.2-py3-none-any.whl", hash = "sha256:b659e6bf5e32e738718f988e85db4dbbb1a2f5aeacdac43ad202b91990fc4ece", size = 115310, upload-time = "2026-03-26T01:34:29.072Z" },
+]
+
+[[package]]
+name = "flowsmith"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "flowkit" },
+    { name = "matplotlib" },
+    { name = "pyside6" },
+    { name = "scipy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flowkit", specifier = ">=1.3.2" },
+    { name = "matplotlib", specifier = ">=3.11.0" },
+    { name = "pyside6", specifier = ">=6.11.1" },
+    { name = "scipy", specifier = ">=1.11" },
 ]
 
 [[package]]

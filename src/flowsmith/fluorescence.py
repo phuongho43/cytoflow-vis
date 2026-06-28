@@ -28,8 +28,8 @@ from matplotlib.ticker import (
     SymmetricalLogLocator,
 )
 
-from cytoflow_vis.plotting import _si_tick
-from cytoflow_vis.style import CATEGORICAL_PALETTE, INK, sequential_colors
+from flowsmith.plotting import _si_tick
+from flowsmith.style import CATEGORICAL_PALETTE, INK, sequential_colors
 
 DEFAULT_FLUOR_CHANNELS = ["BL1-A", "RL1-A"]
 

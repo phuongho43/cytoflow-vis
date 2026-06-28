@@ -2,7 +2,7 @@
 
 A bold, clean, publication aesthetic: dark ink, no top/right spines, thick
 spines and ticks, large bold labels, 300-dpi output. The rc values are scaled
-for the single-panel (~9 inch) square figures cytoflow-vis produces; pass a
+for the single-panel (~9 inch) square figures flowsmith produces; pass a
 larger ``scale`` for bigger multi-panel figures.
 """
 

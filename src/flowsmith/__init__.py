@@ -1,10 +1,10 @@
-"""cytoflow-vis: interactive gating and visualization for flow cytometry FCS files."""
+"""flowsmith: interactive gating and visualization for flow cytometry FCS files."""
 
-from cytoflow_vis.io import LoadedSample, load_sample_sheet, load_samples
-from cytoflow_vis import analysis, fluorescence, spillover
-from cytoflow_vis.analysis import AnalysisContext, REGISTRY, register, run_analysis
-from cytoflow_vis.spillover import compute_spillover_matrix
-from cytoflow_vis.gating import (
+from flowsmith.io import LoadedSample, load_sample_sheet, load_samples
+from flowsmith import analysis, fluorescence, spillover
+from flowsmith.analysis import AnalysisContext, REGISTRY, register, run_analysis
+from flowsmith.spillover import compute_spillover_matrix
+from flowsmith.gating import (
     apply_gate,
     apply_saved_gates,
     build_flowkit_polygon_gate,
@@ -14,7 +14,7 @@ from cytoflow_vis.gating import (
     save_gate,
     seed_populations,
 )
-from cytoflow_vis.plotting import density_plot, overlay_polygon
+from flowsmith.plotting import density_plot, overlay_polygon
 
 __all__ = [
     "LoadedSample",
