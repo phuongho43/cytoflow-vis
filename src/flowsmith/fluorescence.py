@@ -802,7 +802,12 @@ def plot_titer(
     ax.set_xlabel(volume_label or volume_col)
     ax.set_ylabel("Titer (TU/mL)")
     if not df.empty and df["in_range"].any():
-        ax.legend(loc="best")
+        # Sit the key in a strip above the plot rather than at "best" inside the
+        # data: its sample markers are the same glyphs as the wells and read as
+        # stray data points when placed among them. (savefig bbox="tight" keeps
+        # the outside legend from clipping.)
+        ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2,
+                  borderaxespad=0.0, handletextpad=0.4, columnspacing=1.6)
     return ax
 
 
