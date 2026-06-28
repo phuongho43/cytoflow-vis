@@ -801,9 +801,9 @@ def plot_titer(
                edgecolors="white", linewidths=1.5, zorder=4, label="in linear range")
     if mean_titer is not None and np.isfinite(mean_titer):
         ax.axhline(mean_titer, color=INK, ls=(0, (4, 3)), lw=2.5, zorder=2)
-        ax.text(0.99, mean_titer, f" mean {mean_titer:.2e} TU/mL", transform=ax.get_yaxis_transform(),
-                ha="right", va="bottom", color=INK, fontweight="bold",
-                fontsize=plt.rcParams["xtick.labelsize"])
+        ax.text(0.035, 0.965, f"Mean Titer = {mean_titer:.2e} TU/mL",
+                transform=ax.transAxes, ha="left", va="top", color=INK,
+                fontweight="bold", fontsize=plt.rcParams["xtick.labelsize"])
     ax.set_xticks(range(len(vols)))
     ax.set_xticklabels([f"{v:g}" for v in vols])
     if vols:
