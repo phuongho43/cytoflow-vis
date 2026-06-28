@@ -1,9 +1,11 @@
 filename,sample,virus_uL
 uninfected.fcs,uninfected,0
-titr_001uL.fcs,titr_001uL,1
-titr_0025uL.fcs,titr_0025uL,2.5
-titr_005uL.fcs,titr_005uL,5
-titr_010uL.fcs,titr_010uL,10
-titr_025uL.fcs,titr_025uL,25
-titr_050uL.fcs,titr_050uL,50
+titr_0p01uL.fcs,titr_0p01uL,0.01
+titr_0p03uL.fcs,titr_0p03uL,0.03
+titr_0p1uL.fcs,titr_0p1uL,0.1
+titr_0p3uL.fcs,titr_0p3uL,0.3
+titr_1uL.fcs,titr_1uL,1
+titr_3uL.fcs,titr_3uL,3
+titr_10uL.fcs,titr_10uL,10
+titr_30uL.fcs,titr_30uL,30
 titr_100uL.fcs,titr_100uL,100

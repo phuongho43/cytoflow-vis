@@ -38,15 +38,18 @@ polybrene (optional), and a flow cytometer with a laser/filter for your reporter
    at harvest (see the note below). Optionally add **polybrene (4–8 µg/mL)**,
    identical across wells.
 
-2. **Make the dilution series.** From your 100 µL prep, take **~50 µL** and prepare
-   a serial dilution, then add the appropriate amount to each well to give an
-   **original-prep-equivalent volume** of e.g. **0, 1, 2.5, 5, 10, 25, 50, 100 µL**
-   per well — **one well per dilution**. Record this prep-equivalent volume as
-   `virus_uL` in `samples.csv` (e.g. 10 µL of a 1:10 dilution → `virus_uL = 1`), so
-   the reported titer refers to your **undiluted** prep. The **0 µL well is the
-   uninfected/mock control** — it sets the GFP+ threshold and is essential. The
-   wide span of dilutions is your safety net: with no replicates, you want several
-   dilutions so at least a few land in the usable 5–60% range.
+2. **Make the dilution series.** From your 100 µL prep, take **~50 µL** and make a
+   **~3-fold (third-log) serial dilution**, then add a fixed volume to each well to
+   give **original-prep-equivalent volumes** of **0.01, 0.03, 0.1, 0.3, 1, 3, 10,
+   30, 100 µL**, plus a **0 µL mock** — **one well per dilution** (10 wells, fits a
+   12-well plate). This nine-step span is the recommended default: it guarantees
+   **≥2 wells land in the usable 5–60% positive range for any titer from 10⁶ to
+   10⁹ TU/mL**, so you don't need to know the titer beforehand (the analysis keeps
+   the in-range wells and ignores the rest). Sub-µL equivalents are made by
+   diluting the prep — e.g. 0.01 µL-equivalent = 1 µL of a 1:100 dilution; 10 µL of
+   a 1:10 dilution → `virus_uL = 1`. Record the prep-equivalent volume as
+   `virus_uL` in `samples.csv`, so the reported titer refers to your **undiluted**
+   prep. The **0 µL mock** sets the GFP+ threshold and is essential.
 
 3. **Incubate 48–72 h** to let the reporter express. Aim to keep the highest
    useful wells **below ~30% positive** if you can — the titer comes from the
@@ -94,8 +97,8 @@ uv sync          # install flowsmith and its dependencies (run once)
   | `sample` | a short label for the well |
   | `virus_uL` | virus volume added to that well (the dilution series) |
 
-  The provided `samples.csv` already matches the one-well-per-dilution 0–100 µL
-  series above — rename the `filename` entries to your files, or replace the rows.
+  The provided `samples.csv` already matches the third-log 0.01–100 µL series
+  above — rename the `filename` entries to your files, or replace the rows.
 
 ### B2. Point the config at your reporter and cell count
 
