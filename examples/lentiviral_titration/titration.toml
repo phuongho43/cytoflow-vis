@@ -1,10 +1,11 @@
-# Lentiviral titration by flow cytometry
-# ---------------------------------------
-# A fixed number of target cells is transduced with a serial dilution of a
-# lentiviral prep carrying a fluorescent reporter (GFP here). A few days later
-# the cells are read on the cytometer and the GFP+ fraction is measured per
-# well. The functional titer is computed from the wells in the linear range
-# (see "Computing the titer" at the bottom of this file).
+# Lentiviral titration by flow cytometry (in-house production QC)
+# ---------------------------------------------------------------
+# A fixed number of easy-to-transduce HEK293T cells is transduced with a serial
+# dilution of a lentiviral prep carrying a fluorescent reporter (GFP here). A few
+# days later the cells are read on the cytometer and the GFP+ fraction is measured
+# per well. The titer is computed from the wells in the linear range (see
+# "Computing the titer" at the bottom of this file). This is a quick QC readout
+# of a virus prep — one well per dilution, no replicates.
 #
 # Full wet-lab + analysis walkthrough: see PROTOCOL.md in this folder.
 #
@@ -15,7 +16,7 @@
 #
 # Paths are relative to THIS config file's location.
 
-sheet = "samples.csv"   # conditions table: filename, virus_uL, replicate
+sheet = "samples.csv"   # conditions table: filename, virus_uL
 data  = "data"          # directory holding the FCS files
 out   = "results"       # gates (from step 2) + outputs land here
 
@@ -25,7 +26,7 @@ channels = ["BL1-A"]
 
 # Uninfected cells set the GFP+ threshold (99th percentile of the control by
 # default; tune with positive_percentile). The dilution series is the "dose".
-control = "uninfected_r1"
+control = "uninfected"
 dose    = "virus_uL"
 
 # Single-colour experiment: spillover compensation is unnecessary, so it is
@@ -41,7 +42,7 @@ dose    = "virus_uL"
 [[analysis]]
 kind = "mfi_pct"
 
-# Functional titer (TU/mL). cells_seeded is the number of target cells per well
+# Functional titer (TU/mL). cells_seeded is the number of HEK293T cells per well
 # at the time of transduction (an experimental constant flowsmith can't measure)
 # — set it to your seeding number. Each well's GFP+ fraction is Poisson-corrected
 # to MOI (MOI = -ln(1 - f)) before scaling, which removes the multiple-
@@ -65,8 +66,9 @@ kind = "histograms"
 group = "virus_uL"
 group_label = "Virus (uL)"
 
-# The titration curve: % GFP+ (and MFI) vs virus volume, per-replicate points
-# with mean +/- SD. The low-volume, near-linear part is the usable range.
+# The titration curve: % GFP+ (and MFI) vs virus volume (one point per dilution;
+# no error bars with a single replicate). The low-volume, near-linear part is the
+# usable range.
 [[analysis]]
 kind = "dose_response"
 dose = "virus_uL"

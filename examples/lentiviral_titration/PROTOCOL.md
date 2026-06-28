@@ -1,14 +1,22 @@
 # Lentiviral titration — protocol & analysis guide
 
-A step-by-step guide to measuring the **functional titer** (transducing units per
-mL, TU/mL) of a lentiviral prep carrying a fluorescent reporter (GFP here), and
-to running the flowsmith pipeline on the resulting FCS files. Aimed at a
-bench biologist; no prior flowsmith experience assumed.
+A step-by-step guide to getting a **functional titer** (transducing units per mL,
+TU/mL) for a lentiviral prep carrying a fluorescent reporter (GFP here), and to
+running the flowsmith pipeline on the resulting FCS files. Aimed at a bench
+biologist; no prior flowsmith experience assumed.
+
+**Scope: in-house QC.** This is a quick, convenient titer to sanity-check a virus
+production batch — *not* a publication-grade measurement. We trade rigour for
+speed: titer on **HEK293T** (an easy, consistent reporter cell line) rather than
+the eventual target cells, and **one well per dilution** (no replicates). The
+number is a relative QC readout — good for comparing preps and flagging a failed
+production — but the true functional titer on your target cells will differ
+(titer is **cell-type dependent**).
 
 The idea: transduce a **known number of cells** with a **serial dilution** of the
 virus, measure the **% reporter-positive** cells by flow a few days later, and
-back-calculate the titer from the wells that are dilute enough that most positive
-cells carry a single integration.
+back-calculate the titer from the wells dilute enough that most positive cells
+carry a single integration.
 
 ---
 
@@ -18,27 +26,27 @@ cells carry a single integration.
 > biosafety approval, use a Class II cabinet, and decontaminate all
 > virus-contacted plasticware/media.
 
-**You will need:** your target cell line, the lentiviral prep, a 24-well plate,
-polybrene (optional), and a flow cytometer with a laser/filter for your reporter
-(GFP → 488 nm excitation, ~510–530 nm emission; "BL1"/"FITC" channel).
+**You will need:** HEK293T cells, the lentiviral prep, a 24-well plate, polybrene
+(optional), and a flow cytometer with a laser/filter for your reporter (GFP →
+488 nm excitation, ~510–530 nm emission; "BL1"/"FITC" channel).
 
-1. **Seed a fixed, counted number of cells per well (day 0).** Use the cell type
-   you actually care about (titer is **cell-type dependent**). Count carefully —
+1. **Seed a fixed, counted number of HEK293T per well (day 0).** Count carefully —
    e.g. **1 × 10⁵ cells/well** in a 24-well plate. **Write this number down: it is
    `cells_seeded` in the analysis and the titer scales linearly with it.**
 
 2. **Transduce with a serial dilution (day 1).** When cells are ~50–70%
    confluent, add a dilution series of the virus, e.g. **0, 1, 2.5, 5, 10, 25,
-   50, 100 µL** per well (top up to a constant total volume with medium). The
-   **0 µL well is the uninfected/mock control** — it sets the GFP+ threshold and
-   is essential. Run the series in **duplicate or triplicate** (biological
-   replicates). Optionally add **polybrene (4–8 µg/mL)** to aid uptake; keep it
-   identical across wells.
+   50, 100 µL** per well (top up to a constant total volume with medium), **one
+   well per dilution**. The **0 µL well is the uninfected/mock control** — it sets
+   the GFP+ threshold and is essential. Optionally add **polybrene (4–8 µg/mL)** to
+   aid uptake; keep it identical across wells. The wide span of dilutions is your
+   safety net here: with no replicates, you want several dilutions so at least a
+   few land in the usable 5–60% range.
 
 3. **Incubate 48–72 h** to let the reporter express. Aim to keep the highest
    useful wells **below ~30% positive** if you can — the titer comes from the
    dilute, low-MOI wells, so a few clearly sub-saturating dilutions matter more
-   than the saturated ones. Avoid letting cells overgrow.
+   than the saturated ones. Avoid letting the fast-growing HEK293T overgrow.
 
 4. **Harvest and read by flow.** Detach (trypsin/Accutase), wash, resuspend in
    FACS buffer (optionally fix in 1–2% PFA). Acquire **all wells with identical
@@ -71,10 +79,9 @@ uv sync          # install flowsmith and its dependencies (run once)
   | `filename` | the FCS file name in `data/` (required) |
   | `sample` | a short label for the well |
   | `virus_uL` | virus volume added to that well (the dilution series) |
-  | `replicate` | biological replicate number (1, 2, …) |
 
-  The provided `samples.csv` already matches the 0–100 µL × 2-replicate series
-  above — rename the `filename` entries to your files, or replace the rows.
+  The provided `samples.csv` already matches the one-well-per-dilution 0–100 µL
+  series above — rename the `filename` entries to your files, or replace the rows.
 
 ### B2. Point the config at your reporter and cell count
 
@@ -110,7 +117,7 @@ This replays the gates, applies the logicle transform, and runs the analyses.
 The titer line in the console output is your answer, e.g.:
 
 ```
-titer -> titer.csv, titer.png (mean 5.30e+06 TU/mL over 8 wells)
+titer -> titer.csv, titer.png (mean 5.30e+06 TU/mL over 4 wells)
 ```
 
 ### Outputs (in `results/`)
@@ -152,7 +159,10 @@ volume**, the assumptions are strained — see below.
 | Mock (0 µL) well already shows many positives | Background/autofluorescence too high; the threshold is set off the control, so a noisy control inflates everything. Check `hist_*.png`. |
 | Titer looks 2–10× off | Re-check `cells_seeded` (titer scales linearly with it) and that `virus_uL`/`volume_unit` are correct. |
 
-**Report it honestly.** State the **cell type**, **`cells_seeded`**, the **time
-post-transduction**, that the titer is the mean of the linear-range (single-
-integration) wells, and whether polybrene was used — titer is meaningful only
-relative to that context.
+**Treat it as a relative QC number.** This is a HEK293T titer from single wells —
+use it to compare preps, track production consistency, and catch a failed batch,
+not as an absolute titer for your target cells. When you record it in the lab
+notebook, note the **cell type (HEK293T)**, **`cells_seeded`**, **time
+post-transduction**, and whether polybrene was used, so batches stay comparable.
+If you ever need a publication-grade or target-cell titer, switch to the actual
+target cells and run replicates.
