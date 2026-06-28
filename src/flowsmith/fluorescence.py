@@ -811,6 +811,14 @@ def plot_titer(
     ax.set_yscale("log")
     ax.set_xlabel(volume_label or volume_col)
     ax.set_ylabel("Titer (TU/mL)")
+    # Spell out the per-well formula behind the points, in the lower-left corner.
+    ax.text(0.035, 0.04,
+            r"$\mathrm{TU/mL}=\frac{N_\mathrm{cells}\cdot \mathrm{MOI}}{V_\mathrm{mL}}$"
+            "\n"
+            r"$\mathrm{MOI}=-\ln(1-f)$",
+            transform=ax.transAxes, ha="left", va="bottom", color=INK,
+            fontsize=plt.rcParams["xtick.labelsize"],
+            bbox=dict(boxstyle="round,pad=0.35", fc="white", ec=INK, lw=1.2, alpha=0.85))
     if not df.empty and df["in_range"].any():
         # Sit the key in a strip above the plot rather than at "best" inside the
         # data: its sample markers are the same glyphs as the wells and read as
