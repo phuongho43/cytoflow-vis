@@ -11,11 +11,15 @@ condition, 2D channel-vs-channel density, and dose-response plots.
 
 from __future__ import annotations
 
+import re
+import warnings
+
 import flowkit as fk
 import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy import stats as sp_stats
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import (
     FixedFormatter,
@@ -166,9 +170,9 @@ def _hist_mesh(ax, H, xe, ye, norm, cmap):
                          rasterized=True)
 
 
-def _counts_key(fig, axes, mesh, vmax, cmap) -> None:
+def _counts_key(fig, axes, mesh, vmax, cmap, pad: float = 0.02) -> None:
     """Shared ``events / bin`` colourbar with readable integer ticks."""
-    cbar = fig.colorbar(mesh, ax=axes, fraction=0.046, pad=0.02)
+    cbar = fig.colorbar(mesh, ax=axes, fraction=0.046, pad=pad)
     cbar.set_label("events / bin", color=INK, weight="bold")
     cbar.ax.tick_params(labelsize=plt.rcParams["axes.labelsize"] * 0.8)
     cbar.outline.set_edgecolor(INK)
@@ -402,6 +406,61 @@ def plot_histograms(
     return ax
 
 
+def _density_grid(populations, x_channel, y_channel, xform, row, col, row_order,
+                  col_order, per_sample, bins, panel, cmap, xlabel, ylabel, seed):
+    """2D density laid out as a ``row`` x ``col`` condition grid (helper for
+    :func:`plot_2d_density`). Column headers run along the top, row labels down
+    the right side; the representative replicate fills each cell."""
+    rng = np.random.default_rng(seed)
+    uniq = lambda k: {p["conditions"].get(k) for p in populations}
+    row_vals = list(row_order) if row_order else sorted(uniq(row), key=_natural_key)
+    col_vals = list(col_order) if col_order else sorted(uniq(col), key=_natural_key)
+    nrows, ncols = len(row_vals), len(col_vals)
+    hist_range = [[_LOGICLE_LO, _LOGICLE_HI], [_LOGICLE_LO, _LOGICLE_HI]]
+
+    cells = {}  # (ri, ci) -> (H, xe, ye) or None when the combination is absent
+    for ri, rv in enumerate(row_vals):
+        for ci, cv in enumerate(col_vals):
+            match = [p for p in populations
+                     if p["conditions"].get(row) == rv and p["conditions"].get(col) == cv]
+            if not match:
+                cells[(ri, ci)] = None
+                continue
+            p = representative_population(match, [x_channel, y_channel], xform)
+            x = xform.apply(_subsample(p["events"][x_channel].to_numpy(dtype=float), per_sample, rng))
+            y = xform.apply(_subsample(p["events"][y_channel].to_numpy(dtype=float), per_sample, rng))
+            cells[(ri, ci)] = np.histogram2d(x, y, bins=bins, range=hist_range)
+    norm, vmax = _shared_count_norm([c[0] for c in cells.values() if c is not None])
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(panel * ncols, panel * nrows),
+                             squeeze=False, sharex=True, sharey=True, layout="constrained")
+    fig.get_layout_engine().set(hspace=0.10)
+    mesh = None
+    for ri in range(nrows):
+        for ci in range(ncols):
+            ax = axes[ri][ci]
+            cell = cells[(ri, ci)]
+            if cell is not None:
+                mesh = _hist_mesh(ax, cell[0], cell[1], cell[2], norm, cmap)
+            ax.set_xlim(_LOGICLE_LO, _LOGICLE_HI)
+            ax.set_ylim(_LOGICLE_LO, _LOGICLE_HI)
+            logicle_axis(ax, xform, which="x", label_zero=False)
+            logicle_axis(ax, xform, which="y", label_zero=False)
+            _style_facet_ticks(ax)
+            if ri == 0:  # column header
+                ax.set_title(_fmt_value(col_vals[ci]), pad=6)
+            if ci == ncols - 1:  # row label down the right
+                ax.text(1.04, 0.5, _fmt_value(row_vals[ri]), transform=ax.transAxes,
+                        rotation=270, ha="left", va="center", fontweight="bold",
+                        fontsize=plt.rcParams["axes.labelsize"])
+            ax.label_outer()
+    label_kw = dict(fontsize=plt.rcParams["axes.labelsize"], fontweight="bold")
+    fig.supxlabel(xlabel or x_channel, **label_kw)
+    fig.supylabel(ylabel or y_channel, **label_kw)
+    _counts_key(fig, axes, mesh, vmax, cmap, pad=0.06)  # extra pad clears row labels
+    return fig
+
+
 def plot_2d_density(
     populations: list[dict],
     x_channel: str,
@@ -417,19 +476,27 @@ def plot_2d_density(
     xlabel: str | None = None,
     ylabel: str | None = None,
     cmap: str = "viridis",
+    row: str | None = None,
+    col: str | None = None,
+    row_order=None,
+    col_order=None,
     seed: int = 0,
 ) -> plt.Figure:
     """Faceted logicle 2D density.
 
-    ``mode="representative"`` (default) shows one panel per condition, picking
-    the representative replicate; ``mode="all"`` is a QC view with one panel per
-    sample. Panel titles are the bare condition value plus an optional ``unit``
-    (e.g. ``"5 mM"``). Panels are raw 2D-histogram density (the cytometry
+    With ``row`` and ``col`` (two condition columns) the panels form a true grid:
+    one condition down the rows, the other across the columns, with column
+    headers on top and row labels down the right. Otherwise ``mode`` controls a
+    flat tiling: ``"representative"`` (default) one panel per condition, or
+    ``"all"`` one per sample. Panels are raw 2D-histogram density (the cytometry
     standard) sharing one absolute ``events / bin`` colour scale, biexponential
-    logicle axes, and shared figure-level channel labels; only the outer panels
-    carry tick labels. ``ncols`` defaults to a near-square tiling. Expects the
-    ``rc()`` context (reduced ``scale``).
+    logicle axes, and shared figure-level channel labels. Expects the ``rc()``
+    context (reduced ``scale``).
     """
+    if row and col:
+        return _density_grid(populations, x_channel, y_channel, xform, row, col,
+                             row_order, col_order, per_sample, bins, panel, cmap,
+                             xlabel, ylabel, seed)
     rng = np.random.default_rng(seed)
     if mode == "all":
         panels = [(p["sample_id"], p) for p in populations]
@@ -620,6 +687,7 @@ def plot_dose_response(
         _symlog_dose_axis(ax, linthresh)
     if percent:
         ax.set_ylim(-4, 104)  # headroom so markers/line at 0 % and 100 % aren't clipped
+        ax.set_yticks(np.arange(0, 101, 20))  # a percentage can't exceed 100
     else:
         ax.set_ylim(bottom=0)  # anchor at 0 so a flat channel reads as flat
         ax.yaxis.set_major_formatter(FuncFormatter(_si_tick))
@@ -642,6 +710,170 @@ def plot_dose_response(
     return ax
 
 
+# --- Categorical comparison (unordered groups, e.g. CAR_A vs CAR_B) ----------
+
+def _natural_key(v):
+    """Sort key giving human/natural order (``g2`` before ``g10``)."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(v))]
+
+
+def _ci_halfwidth(vals: np.ndarray, ci: float = 1.96) -> float:
+    """Half-width of the (normal-approx) confidence interval: ``ci * SEM``."""
+    vals = np.asarray(vals, dtype=float)
+    if vals.size < 2:
+        return 0.0
+    return float(ci) * float(np.std(vals, ddof=1)) / np.sqrt(vals.size)
+
+
+def _p_stars(pval: float) -> str:
+    """Significance marker for a p-value (``ns`` when not significant)."""
+    if pval <= 0.001:
+        return "***"
+    if pval <= 0.01:
+        return "**"
+    if pval <= 0.05:
+        return "*"
+    return "ns"
+
+
+def _draw_sig_brackets(ax, pos: dict, comparisons, ci: float, ref_span: float) -> float:
+    """Draw t-test significance brackets between pairs of categorical positions.
+
+    ``pos`` maps ``(group, subgroup)`` -> ``(x, values)``. ``comparisons`` is a
+    list of ``(endpoint_a, endpoint_b)`` keys. Each bracket sits just above the
+    tallest data under its span and is bumped up only to clear earlier brackets
+    it overlaps, so it stays near its own groups. The vertical spacing scales
+    with ``ref_span`` (the axis range, not the data spread, so brackets clear the
+    markers even when the data sits low on the axis). Returns the new top y.
+    """
+    def height(vals):
+        return max(float(vals.max()), float(vals.mean()) + _ci_halfwidth(vals, ci))
+
+    heights = [(x, height(v)) for x, v in pos.values() if v.size]
+    dy = (ref_span or 1.0) / 18.0
+    placed, top = [], max((h for _, h in heights), default=0.0)
+    for a, b in comparisons:
+        if a not in pos or b not in pos:
+            continue
+        (x1, v1), (x2, v2) = pos[a], pos[b]
+        if v1.size < 2 or v2.size < 2:
+            continue
+        lo, hi = sorted((x1, x2))
+        under = [h for x, h in heights if lo - 1e-6 <= x <= hi + 1e-6]
+        y = (max(under) if under else top) + dy * 1.2
+        while any(not (hi < plo or lo > phi) and abs(py - y) < dy * 1.8
+                  for plo, phi, py in placed):
+            y += dy * 2.0
+        with warnings.catch_warnings():  # quiet near-identical (degenerate) samples
+            warnings.simplefilter("ignore")
+            pval = float(sp_stats.ttest_ind(v1, v2, equal_var=False).pvalue)
+        text = _p_stars(pval) if np.isfinite(pval) else "ns"
+        ax.plot([x1, x1, x2, x2], [y, y + dy * 0.5, y + dy * 0.5, y], color=INK,
+                lw=plt.rcParams["axes.linewidth"] * 0.7, solid_capstyle="round", zorder=10)
+        big = text != "ns"
+        # sit the label above the bar (at y + dy*0.5) with a small gap; asterisks
+        # already ride high in their text box, so they need a smaller offset than
+        # "ns" to leave the same visual padding.
+        ax.text((x1 + x2) / 2.0, y + dy * (0.20 if big else 0.7), text, ha="center",
+                va="bottom", color=INK, fontweight="bold",
+                fontsize=plt.rcParams["xtick.labelsize"] * (1.4 if big else 1.0), zorder=10)
+        placed.append((lo, hi, y))
+        top = max(top, y + dy * 2.0)
+    return top
+
+
+def plot_categorical(
+    ax: plt.Axes,
+    stats_df: pd.DataFrame,
+    group_col: str,
+    y_col: str,
+    subgroup_col: str | None = None,
+    colors: list | None = None,
+    group_label: str | None = None,
+    y_label: str | None = None,
+    comparisons=None,
+    order=None,
+    subgroup_order=None,
+    percent: bool = False,
+    ci: float = 1.96,
+    seed: int = 0,
+) -> plt.Axes:
+    """Categorical comparison: jittered replicate points + mean ± CI per group.
+
+    For unordered groups (e.g. CAR constructs). Each biological replicate is a
+    faint point; the mean with a ``ci``×SEM error bar sits on top. An optional
+    ``subgroup_col`` splits each group into dodged, differently-shaped/coloured
+    series (with a legend). ``comparisons`` draws t-test significance brackets
+    between ``(group, subgroup)`` position pairs. Expects the ``rc()`` context.
+    """
+    rng = np.random.default_rng(seed)
+    groups = list(order) if order else sorted(stats_df[group_col].dropna().unique(), key=_natural_key)
+    subs = (
+        (list(subgroup_order) if subgroup_order
+         else sorted(stats_df[subgroup_col].dropna().unique(), key=_natural_key))
+        if subgroup_col else [None]
+    )
+    n_sub = len(subs)
+    dstep = 0.0 if n_sub == 1 else min(0.24, 0.55 / n_sub)
+    offsets = (np.arange(n_sub) - (n_sub - 1) / 2.0) * dstep
+    if colors is None:
+        # Colour by data type (as the histograms do): an ordered/numeric key gets
+        # the sequential ramp so colour encodes magnitude; a categorical (string)
+        # key gets the Okabe-Ito palette.
+        keys = subs if subgroup_col else groups
+        numeric = all(
+            isinstance(v, (int, float, np.number)) and not isinstance(v, bool) for v in keys
+        )
+        colors = (
+            sequential_colors(len(keys)) if numeric
+            else [CATEGORICAL_PALETTE[i % len(CATEGORICAL_PALETTE)] for i in range(len(keys))]
+        )
+
+    pos = {}
+    for si, sval in enumerate(subs):
+        marker = _MARKERS[si % len(_MARKERS)] if subgroup_col else "o"
+        for gi, gval in enumerate(groups):
+            x = gi + offsets[si]
+            mask = stats_df[group_col] == gval
+            if subgroup_col:
+                mask = mask & (stats_df[subgroup_col] == sval)
+            vals = pd.to_numeric(stats_df.loc[mask, y_col], errors="coerce").dropna().to_numpy()
+            pos[(gval, sval)] = (x, vals)
+            color = colors[si] if subgroup_col else colors[gi]
+            jitter = (rng.random(vals.size) - 0.5) * 0.10
+            ax.scatter(x + jitter, vals, s=42, color=color, alpha=0.55, marker=marker,
+                       linewidths=0, zorder=3)
+            if vals.size:
+                ax.errorbar(x, vals.mean(), yerr=_ci_halfwidth(vals, ci), fmt=marker,
+                            color=color, ecolor=color, elinewidth=2.5, capsize=6,
+                            capthick=2.5, markersize=11, markeredgecolor="white",
+                            markeredgewidth=1.0, zorder=5,
+                            label=_fmt_value(sval) if subgroup_col and gi == 0 else None)
+
+    ax.set_xticks(range(len(groups)))
+    ax.set_xticklabels([_fmt_value(g) for g in groups])
+    ax.set_xlim(-0.5, len(groups) - 0.5)
+    ax.set_xlabel(group_label or group_col)
+    ax.set_ylabel(y_label or y_col)
+
+    tops = [v.mean() + _ci_halfwidth(v, ci) for _, v in pos.values() if v.size]
+    raw = [v.max() for _, v in pos.values() if v.size]
+    data_top = max(tops + raw + [0.0])
+    # bracket spacing scales with the axis range (100 for a % axis) so brackets
+    # clear the markers even when the data sits low on the axis.
+    ref_span = 100.0 if percent else (data_top or 1.0)
+    top = _draw_sig_brackets(ax, pos, comparisons, ci, ref_span) if comparisons else data_top
+    if percent:
+        # Headroom above 100 for brackets, but a percentage can't exceed 100 -
+        # cap the labelled ticks there.
+        ax.set_ylim(-4, max(104, top * 1.02))
+        ax.set_yticks(np.arange(0, 101, 20))
+    else:
+        ax.set_ylim(bottom=0, top=top * 1.08 if top > 0 else None)
+        ax.yaxis.set_major_formatter(FuncFormatter(_si_tick))
+    return ax
+
+
 # --- Quadrant analysis (two thresholds -> four populations) ------------------
 # Quadrant keys, with their corner on an (x, y) plot:
 #   dn  = x-/y-  (lower-left)    x_pos = x+/y-  (lower-right)
@@ -651,6 +883,86 @@ QUADRANT_KEYS = ("dn", "x_pos", "dp", "y_pos")
 
 def _resolve_labels(labels: dict | None) -> dict:
     return {**{k: k for k in QUADRANT_KEYS}, **(labels or {})}
+
+
+# corner placement (x, y, halign, valign) in axes fraction for each quadrant
+_QUADRANT_CORNERS = {
+    "dn": (0.04, 0.04, "left", "bottom"),
+    "x_pos": (0.96, 0.04, "right", "bottom"),
+    "dp": (0.96, 0.96, "right", "top"),
+    "y_pos": (0.04, 0.96, "left", "top"),
+}
+
+
+def _draw_quadrant_overlay(ax, labels, quad_row, x_threshold, y_threshold) -> None:
+    """Crosshairs at the two thresholds + a per-quadrant ``label / %`` corner box."""
+    ax.axvline(x_threshold, color=INK, ls=(0, (4, 3)), lw=2.0, zorder=4)
+    ax.axhline(y_threshold, color=INK, ls=(0, (4, 3)), lw=2.0, zorder=4)
+    for k in QUADRANT_KEYS:
+        fx, fy, ha, va = _QUADRANT_CORNERS[k]
+        ax.text(fx, fy, f"{labels[k]}\n{quad_row[f'pct_{labels[k]}']:.0f}%",
+                transform=ax.transAxes, ha=ha, va=va, color=INK, fontweight="bold",
+                fontsize=plt.rcParams["xtick.labelsize"], zorder=6,
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=INK, lw=1.2, alpha=0.85))
+
+
+def _quadrant_grid(populations, x_channel, y_channel, xform, x_threshold, y_threshold,
+                   quad_df, labels, row, col, row_order, col_order, per_sample, bins,
+                   panel, cmap, xlabel, ylabel, seed):
+    """Quadrant density laid out as a ``row`` x ``col`` condition grid (helper for
+    :func:`plot_quadrants`)."""
+    rng = np.random.default_rng(seed)
+    def uniq(k):
+        return {p["conditions"].get(k) for p in populations}
+    row_vals = list(row_order) if row_order else sorted(uniq(row), key=_natural_key)
+    col_vals = list(col_order) if col_order else sorted(uniq(col), key=_natural_key)
+    nrows, ncols = len(row_vals), len(col_vals)
+    hist_range = [[_LOGICLE_LO, _LOGICLE_HI], [_LOGICLE_LO, _LOGICLE_HI]]
+
+    cells = {}  # (ri, ci) -> (H, xe, ye, quad_row) or None
+    for ri, rv in enumerate(row_vals):
+        for ci, cv in enumerate(col_vals):
+            match = [p for p in populations
+                     if p["conditions"].get(row) == rv and p["conditions"].get(col) == cv]
+            if not match:
+                cells[(ri, ci)] = None
+                continue
+            p = representative_population(match, [x_channel, y_channel], xform)
+            x = xform.apply(_subsample(p["events"][x_channel].to_numpy(dtype=float), per_sample, rng))
+            y = xform.apply(_subsample(p["events"][y_channel].to_numpy(dtype=float), per_sample, rng))
+            H, xe, ye = np.histogram2d(x, y, bins=bins, range=hist_range)
+            qrow = quad_df.loc[quad_df["sample_id"] == p["sample_id"]].iloc[0]
+            cells[(ri, ci)] = (H, xe, ye, qrow)
+    norm, vmax = _shared_count_norm([c[0] for c in cells.values() if c is not None])
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(panel * ncols, panel * nrows),
+                             squeeze=False, sharex=True, sharey=True, layout="constrained")
+    fig.get_layout_engine().set(hspace=0.10)
+    mesh = None
+    for ri in range(nrows):
+        for ci in range(ncols):
+            ax = axes[ri][ci]
+            cell = cells[(ri, ci)]
+            if cell is not None:
+                mesh = _hist_mesh(ax, cell[0], cell[1], cell[2], norm, cmap)
+                _draw_quadrant_overlay(ax, labels, cell[3], x_threshold, y_threshold)
+            ax.set_xlim(_LOGICLE_LO, _LOGICLE_HI)
+            ax.set_ylim(_LOGICLE_LO, _LOGICLE_HI)
+            logicle_axis(ax, xform, which="x", label_zero=False)
+            logicle_axis(ax, xform, which="y", label_zero=False)
+            _style_facet_ticks(ax)
+            if ri == 0:
+                ax.set_title(_fmt_value(col_vals[ci]), pad=6)
+            if ci == ncols - 1:
+                ax.text(1.04, 0.5, _fmt_value(row_vals[ri]), transform=ax.transAxes,
+                        rotation=270, ha="left", va="center", fontweight="bold",
+                        fontsize=plt.rcParams["axes.labelsize"])
+            ax.label_outer()
+    label_kw = dict(fontsize=plt.rcParams["axes.labelsize"], fontweight="bold")
+    fig.supxlabel(xlabel or x_channel, **label_kw)
+    fig.supylabel(ylabel or y_channel, **label_kw)
+    _counts_key(fig, axes, mesh, vmax, cmap, pad=0.06)
+    return fig
 
 
 def quadrant_stats(
@@ -705,18 +1017,27 @@ def plot_quadrants(
     xlabel: str | None = None,
     ylabel: str | None = None,
     cmap: str = "viridis",
+    row: str | None = None,
+    col: str | None = None,
+    row_order=None,
+    col_order=None,
     seed: int = 0,
 ) -> plt.Figure:
     """Faceted 2D density with quadrant crosshairs and per-quadrant % labels.
 
     One panel per condition (the representative replicate, matching the 2D
     density facets); the crosshairs mark the two thresholds and each corner is
-    annotated with that panel's quadrant percentage. Panels are raw 2D-histogram
-    density sharing one absolute ``events / bin`` scale, with shared biexponential
-    logicle axes, channel-biology figure labels, and a near-square tiling.
-    Expects ``rc()``.
+    annotated with that panel's quadrant percentage. With ``row`` and ``col``
+    (two condition columns) the panels form a grid (column headers on top, row
+    labels down the right); otherwise they tile near-square. Panels are raw
+    2D-histogram density sharing one absolute ``events / bin`` scale, with shared
+    logicle axes and channel-biology figure labels. Expects ``rc()``.
     """
     labels = _resolve_labels(labels)
+    if row and col:
+        return _quadrant_grid(populations, x_channel, y_channel, xform, x_threshold,
+                              y_threshold, quad_df, labels, row, col, row_order,
+                              col_order, per_sample, bins, panel, cmap, xlabel, ylabel, seed)
     rng = np.random.default_rng(seed)
     panels = [
         (label, representative_population(pops, [x_channel, y_channel], xform))
@@ -740,27 +1061,11 @@ def plot_quadrants(
     )
     fig.get_layout_engine().set(hspace=0.10)
     flat = axes.flatten()
-    # corner placement (x, y, halign, valign) in axes fraction for each quadrant
-    corners = {
-        "dn": (0.04, 0.04, "left", "bottom"),
-        "x_pos": (0.96, 0.04, "right", "bottom"),
-        "dp": (0.96, 0.96, "right", "top"),
-        "y_pos": (0.04, 0.96, "left", "top"),
-    }
     mesh = None
     for ax, (label, p, H, xe, ye) in zip(flat, binned):
         mesh = _hist_mesh(ax, H, xe, ye, norm, cmap)
-        ax.axvline(x_threshold, color=INK, ls=(0, (4, 3)), lw=2.0, zorder=4)
-        ax.axhline(y_threshold, color=INK, ls=(0, (4, 3)), lw=2.0, zorder=4)
-        row = quad_df.loc[quad_df["sample_id"] == p["sample_id"]].iloc[0]
-        for k in QUADRANT_KEYS:
-            fx, fy, ha, va = corners[k]
-            ax.text(
-                fx, fy, f"{labels[k]}\n{row[f'pct_{labels[k]}']:.0f}%",
-                transform=ax.transAxes, ha=ha, va=va, color=INK, fontweight="bold",
-                fontsize=plt.rcParams["xtick.labelsize"], zorder=6,
-                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=INK, lw=1.2, alpha=0.85),
-            )
+        qrow = quad_df.loc[quad_df["sample_id"] == p["sample_id"]].iloc[0]
+        _draw_quadrant_overlay(ax, labels, qrow, x_threshold, y_threshold)
         ax.set_title(label, pad=3)
         ax.set_xlim(_LOGICLE_LO, _LOGICLE_HI)
         ax.set_ylim(_LOGICLE_LO, _LOGICLE_HI)
@@ -810,6 +1115,7 @@ def plot_quadrant_dose_response(
     ax.set_xlabel(dose_label or dose_col)
     ax.set_ylabel("% of singlets")
     ax.set_ylim(-4, 104)  # headroom so a quadrant at 0 % or 100 % isn't clipped
+    ax.set_yticks(np.arange(0, 101, 20))  # a percentage can't exceed 100
     title = f"{legend_title} (n = {n_reps.pop()})" if show_n and len(n_reps) == 1 else legend_title
     leg = ax.legend(title=title, loc="center left", bbox_to_anchor=(1.02, 0.5))
     leg.get_title().set_fontweight("bold")
