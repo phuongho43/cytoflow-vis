@@ -223,6 +223,17 @@ Write a function in `analysis.py` decorated with `@register("my_kind")` that
 takes the `AnalysisContext` plus keyword params and writes to `ctx.out_dir`. It
 is then available as `kind = "my_kind"` in any experiment's config.
 
+### Tests
+
+```bash
+uv run pytest
+```
+
+`tests/test_pipeline.py` is an end-to-end test: it generates synthetic FCS files
+with a known ground-truth titer, replays gates, runs the `analyze` runner, and
+asserts the recovered titer (and gating/outputs) — exercising the whole pipeline
+without a cytometer.
+
 ## Library use
 
 The pieces are importable and compose as a population pipeline:
