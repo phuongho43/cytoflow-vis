@@ -714,6 +714,98 @@ def plot_dose_response(
     return ax
 
 
+# --- Functional titer (TU/mL from a reporter dilution series) ----------------
+
+def compute_titer(
+    stats_df: pd.DataFrame,
+    volume_col: str,
+    pct_col: str,
+    cells_seeded: float,
+    volume_to_mL: float = 1e-3,
+    linear_min: float = 5.0,
+    linear_max: float = 60.0,
+    poisson: bool = True,
+) -> pd.DataFrame:
+    """Per-well functional titer (transducing units / mL) from a reporter series.
+
+    For each well ``titer = cells_seeded * transduced_per_cell / volume_mL`` where
+    ``volume_mL = volume * volume_to_mL`` (default: ``volume`` in microlitres) and
+    ``transduced_per_cell`` is derived from the reporter+ fraction ``f = pct_pos /
+    100``.
+
+    With ``poisson=True`` (the default) the fraction is converted to the mean
+    integrations per cell (MOI) before scaling: ``f = 1 - exp(-MOI)`` so
+    ``MOI = -ln(1 - f)``. This undoes the saturation bias of cells taking up
+    several particles, so wells well above the naive linear range stay accurate
+    (it diverges as ``f -> 1``, giving a NaN titer at 100 % positive). Set
+    ``poisson=False`` to use the raw fraction, which is only unbiased at low MOI.
+
+    A well is flagged ``in_range`` when its % positive lies within
+    ``[linear_min, linear_max]`` (default 5-60 %) and its volume is > 0; only
+    these should feed the reported titer. The low bound drops wells dominated by
+    the control's false-positive background (the positive threshold sits at a high
+    percentile of the control, so very low fractions are mostly background, which
+    the MOI transform then amplifies); the high bound stays clear of the ~>90 %
+    saturation regime where ``-ln(1 - f)`` gets noise-sensitive. Zero-volume
+    (mock) wells get a NaN titer. Returns the input columns plus ``volume_mL``,
+    ``titer`` and ``in_range``, sorted by volume.
+    """
+    df = stats_df.copy()
+    vol = pd.to_numeric(df[volume_col], errors="coerce")
+    pct = pd.to_numeric(df[pct_col], errors="coerce")
+    frac = pct / 100.0
+    if poisson:
+        # MOI = -ln(1 - f); undefined (NaN) as f -> 1, i.e. a saturated well.
+        transduced = -np.log1p(-frac.where(frac < 1.0))
+    else:
+        transduced = frac
+    vol_mL = vol * volume_to_mL
+    titer = cells_seeded * transduced / vol_mL
+    titer = titer.where(vol > 0)  # mock / zero-volume wells can't give a titer
+    df["volume_mL"] = vol_mL
+    df["titer"] = titer
+    df["in_range"] = (vol > 0) & (pct >= linear_min) & (pct <= linear_max)
+    return df.sort_values(volume_col).reset_index(drop=True)
+
+
+def plot_titer(
+    ax: plt.Axes,
+    titer_df: pd.DataFrame,
+    volume_col: str,
+    mean_titer: float | None = None,
+    volume_label: str | None = None,
+) -> plt.Axes:
+    """Diagnostic titer plot: per-well TU/mL vs virus volume (both log axes).
+
+    In-range wells (the single-integration regime) are solid accent points;
+    out-of-range wells are faint open points so it is clear why they were
+    excluded. The dashed line marks ``mean_titer`` (the reported value): in a
+    clean titration the in-range points scatter flat around it, while a trend
+    with volume signals the linear-range assumption is breaking down. Expects the
+    ``rc()`` context.
+    """
+    df = titer_df[titer_df["titer"].notna()]
+    accent = CATEGORICAL_PALETTE[0]
+    out = df[~df["in_range"]]
+    inr = df[df["in_range"]]
+    ax.scatter(out[volume_col], out["titer"], s=90, facecolors="none",
+               edgecolors="#9aa0a6", linewidths=2.5, zorder=3, label="excluded")
+    ax.scatter(inr[volume_col], inr["titer"], s=110, color=accent,
+               edgecolors="white", linewidths=1.5, zorder=4, label="in linear range")
+    if mean_titer is not None and np.isfinite(mean_titer):
+        ax.axhline(mean_titer, color=INK, ls=(0, (4, 3)), lw=2.5, zorder=2)
+        ax.text(0.99, mean_titer, f" mean {mean_titer:.2e} TU/mL", transform=ax.get_yaxis_transform(),
+                ha="right", va="bottom", color=INK, fontweight="bold",
+                fontsize=plt.rcParams["xtick.labelsize"])
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(volume_label or volume_col)
+    ax.set_ylabel("Titer (TU/mL)")
+    if not df.empty and df["in_range"].any():
+        ax.legend(loc="best")
+    return ax
+
+
 # --- Categorical comparison (unordered groups, e.g. CAR_A vs CAR_B) ----------
 
 def _natural_key(v):

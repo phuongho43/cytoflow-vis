@@ -1,0 +1,85 @@
+# Lentiviral titration by flow cytometry
+# ---------------------------------------
+# A fixed number of target cells is transduced with a serial dilution of a
+# lentiviral prep carrying a fluorescent reporter (GFP here). A few days later
+# the cells are read on the cytometer and the GFP+ fraction is measured per
+# well. The functional titer is computed from the wells in the linear range
+# (see "Computing the titer" at the bottom of this file).
+#
+# Workflow:
+#   1. Drop the FCS files into ./data/ (filenames must match samples.csv).
+#   2. Draw the shared FSC/SSC gates once:   uv run gate-cells --sheet samples.csv --data data --out results
+#   3. Run this analysis:                    uv run analyze titration.toml
+#
+# Paths are relative to THIS config file's location.
+
+sheet = "samples.csv"   # conditions table: filename, virus_uL, replicate
+data  = "data"          # directory holding the FCS files
+out   = "results"       # gates (from step 2) + outputs land here
+
+# GFP reporter channel. Rename to your instrument's channel (e.g. "FL1-A",
+# "FITC-A") and update [channel_labels] below to match.
+channels = ["BL1-A"]
+
+# Uninfected cells set the GFP+ threshold (99th percentile of the control by
+# default; tune with positive_percentile). The dilution series is the "dose".
+control = "uninfected_r1"
+dose    = "virus_uL"
+
+# Single-colour experiment: spillover compensation is unnecessary, so it is
+# left off. (Add `compensation = "acquisition"` only for multi-colour panels.)
+
+[channel_labels]
+# Map raw channel -> the biology it reports; used for plot axis labels.
+"BL1-A" = "GFP"
+
+# --- analyses ----------------------------------------------------------------
+
+# Per-well MFI + % positive table -> results/fluor_stats.csv.
+[[analysis]]
+kind = "mfi_pct"
+
+# Functional titer (TU/mL). cells_seeded is the number of target cells per well
+# at the time of transduction (an experimental constant flowsmith can't measure)
+# — set it to your seeding number. Each well's GFP+ fraction is Poisson-corrected
+# to MOI (MOI = -ln(1 - f)) before scaling, which removes the multiple-
+# integration bias, and the titer is the mean over wells in the linear range
+# (default 5-60% GFP+: above the control's false-positive background, below
+# saturation). Written to results/titer.csv + titer.png (per-well titers vs
+# volume; should be flat across the in-range wells).
+[[analysis]]
+kind = "titer"
+cells_seeded = 100000
+volume = "virus_uL"
+volume_unit = "uL"
+# linear_min = 5     # window bounds (% positive); defaults shown
+# linear_max = 60
+# poisson = false    # opt out, using the raw GFP+ fraction (low-MOI wells only)
+
+# GFP ridgeline, one ridge per virus volume. Eyeball that the uninfected
+# control is clean and the +/- split sits where you expect.
+[[analysis]]
+kind = "histograms"
+group = "virus_uL"
+group_label = "Virus (uL)"
+
+# The titration curve: % GFP+ (and MFI) vs virus volume, per-replicate points
+# with mean +/- SD. The low-volume, near-linear part is the usable range.
+[[analysis]]
+kind = "dose_response"
+dose = "virus_uL"
+dose_label = "Virus volume (uL)"
+
+# --- How the titer is computed -----------------------------------------------
+# For each well, the GFP+ fraction f = pct_pos_BL1-A/100 is converted to the mean
+# integrations per cell, MOI = -ln(1 - f) (Poisson single-hit), then:
+#
+#     TU/mL = (cells_seeded * MOI) / V_mL
+#
+# The reported value is the mean over the in-range (5-60% GFP+ by default) wells.
+# The MOI correction removes the multiple-integration bias that otherwise makes
+# saturated high-volume wells underestimate the titer, so with it you can include
+# wells well above 20%. Inspect titer.png: the in-range per-well titers should sit
+# flat around the mean. If they still trend with volume, narrow the range or add
+# lower-volume dilutions. (Set poisson = false above to use the raw fraction f
+# instead of MOI — only valid for low-MOI, <~20% wells.)

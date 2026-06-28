@@ -90,6 +90,34 @@ Error-bar type, **n**, **biological vs technical** replicates, the **test** used
   is currently **no curve fitting / EC50** (a 4-parameter-logistic fit is on the
   [roadmap](ROADMAP.md)); do not read an EC50 off the connected points.
 
+## Viral titer
+
+- **Titer is a derived quantity, not a measurement.**
+  `TU/mL = cells_seeded × transduced_per_cell / volume_mL`. `cells_seeded` (target
+  cells per well *at the time of transduction*) is supplied by the user — flow
+  cytometry cannot recover it — so the titer is only as accurate as that number.
+- **Poisson single-hit correction (default).** Each well's reporter+ fraction `f`
+  is converted to the mean integrations per cell before scaling,
+  `MOI = −ln(1 − f)`, undoing the bias from cells taking up several particles. It
+  assumes integrations are **independent and Poisson-distributed**, cells are
+  **equally infectable**, and one integration suffices to score a cell positive —
+  approximations that hold best at low-to-moderate MOI. `poisson = false` uses the
+  raw fraction `f`, which is unbiased *only* at low MOI and systematically
+  **underestimates** the titer as wells saturate.
+- **Only the linear-range wells are averaged** (`linear_min`–`linear_max`,
+  default **5–60 %** positive). The **lower** bound drops wells dominated by the
+  control's false-positive background: the positive threshold sits at a high
+  percentile of the control (≈1 % false positives by construction), and at small
+  `f` that background is a large *relative* error that `−ln(1 − f)` then
+  amplifies. The **upper** bound stays clear of the ≳90 % saturation regime, where
+  `−ln(1 − f)` is steep (`d/df = 1/(1−f)`) and hypersensitive to small
+  fraction-measurement errors (and where receptor saturation / toxicity break the
+  Poisson assumptions). The reported titer is the **mean** over the in-range wells.
+- **Read `titer.png` as a diagnostic.** In a clean titration the per-well titers
+  sit **flat** across virus volume; a trend with volume means the window or the
+  model assumptions are off (raw mode in particular trends downward as wells
+  saturate). Reported value = the dashed mean line.
+
 ---
 
 *Add new assumptions here as analyses are added (e.g. proliferation modelling,

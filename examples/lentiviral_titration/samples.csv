@@ -1,0 +1,17 @@
+filename,sample,virus_uL,replicate
+uninfected_r1.fcs,uninfected_r1,0,1
+uninfected_r2.fcs,uninfected_r2,0,2
+titr_001uL_r1.fcs,titr_001uL_r1,1,1
+titr_001uL_r2.fcs,titr_001uL_r2,1,2
+titr_0025uL_r1.fcs,titr_0025uL_r1,2.5,1
+titr_0025uL_r2.fcs,titr_0025uL_r2,2.5,2
+titr_005uL_r1.fcs,titr_005uL_r1,5,1
+titr_005uL_r2.fcs,titr_005uL_r2,5,2
+titr_010uL_r1.fcs,titr_010uL_r1,10,1
+titr_010uL_r2.fcs,titr_010uL_r2,10,2
+titr_025uL_r1.fcs,titr_025uL_r1,25,1
+titr_025uL_r2.fcs,titr_025uL_r2,25,2
+titr_050uL_r1.fcs,titr_050uL_r1,50,1
+titr_050uL_r2.fcs,titr_050uL_r2,50,2
+titr_100uL_r1.fcs,titr_100uL_r1,100,1
+titr_100uL_r2.fcs,titr_100uL_r2,100,2

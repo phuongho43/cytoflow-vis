@@ -280,6 +280,68 @@ def _dose_response(ctx, channels=None, dose=None, dose_label=None, group=None,
     return f"dose_response -> {path.name}"
 
 
+_VOLUME_TO_ML = {"ul": 1e-3, "uL": 1e-3, "µl": 1e-3, "µL": 1e-3, "ml": 1.0, "mL": 1.0}
+
+
+@register("titer")
+def _titer(ctx, cells_seeded=None, channel=None, volume=None, volume_unit="uL",
+           control=None, positive_percentile=None, linear_min=5.0, linear_max=60.0,
+           poisson=True, out="titer.csv"):
+    """Functional viral titer (TU/mL) from a fluorescent-reporter dilution series.
+
+    Titer = (target cells at transduction) x (transduced per cell) / (virus
+    volume), so it needs ``cells_seeded`` (cells per well) — it cannot be derived
+    from the cytometry alone. The reporter ``channel`` defaults to the first
+    configured channel; ``volume`` is the per-well virus-volume column (defaults
+    to the dose column) read in ``volume_unit`` (``"uL"`` default, or ``"mL"``).
+    Only wells whose % positive falls in ``[linear_min, linear_max]`` (default
+    5-60 %, the reliable single-integration regime — low enough to avoid the
+    control's false-positive background, high enough to avoid saturation) feed the
+    reported titer. By default
+    each fraction is converted to MOI (``-ln(1 - f)``) before scaling, correcting
+    the multiple-integration bias so you can safely widen ``linear_max`` (set
+    ``poisson = false`` for the raw-fraction estimate). Writes a per-well CSV and
+    a diagnostic plot, and returns the mean in-range titer.
+    """
+    if cells_seeded is None:
+        raise ValueError("titer requires 'cells_seeded' (target cells per well at transduction).")
+    channel = channel or ctx.channels[0]
+    control = control if control is not None else ctx.control_id
+    if control is None:
+        raise ValueError("titer needs a 'control' (mock/untransduced well) to set the reporter+ threshold.")
+    volume = volume if volume is not None else ctx.dose_col
+    if volume is None:
+        raise ValueError("titer needs a 'volume' column (per-well virus volume); set it or a dose column.")
+    if volume_unit not in _VOLUME_TO_ML:
+        raise ValueError(f"unknown volume_unit {volume_unit!r}; use one of {sorted(set(_VOLUME_TO_ML))}.")
+    pct = positive_percentile if positive_percentile is not None else ctx.positive_percentile
+
+    stats, _ = fl.compute_stats(ctx.populations, [channel], ctx.xform, control_id=control, positive_percentile=pct)
+    titer_df = fl.compute_titer(
+        stats, volume, f"pct_pos_{channel}", float(cells_seeded),
+        volume_to_mL=_VOLUME_TO_ML[volume_unit], linear_min=linear_min,
+        linear_max=linear_max, poisson=poisson,
+    )
+    csv_path = ctx.out_dir / out
+    titer_df.rename(columns={"titer": "titer_TU_per_mL"}).to_csv(csv_path, index=False)
+
+    in_range = titer_df[titer_df["in_range"]]
+    mean_titer = float(in_range["titer"].mean()) if not in_range.empty else float("nan")
+    with mpl.rc_context(rc()):
+        fig, ax = plt.subplots(figsize=(9, 7), layout="constrained")
+        fl.plot_titer(ax, titer_df, volume, mean_titer=mean_titer,
+                      volume_label=f"Virus volume ({volume_unit})")
+        plot_path = ctx.out_dir / f"{csv_path.stem}.png"
+        fig.savefig(plot_path)
+        plt.close(fig)
+
+    if in_range.empty:
+        return (f"titer -> {csv_path.name}, {plot_path.name} "
+                f"(no wells in {linear_min:g}-{linear_max:g}% range; widen linear_min/linear_max)")
+    return (f"titer -> {csv_path.name}, {plot_path.name} "
+            f"(mean {mean_titer:.2e} TU/mL over {len(in_range)} wells)")
+
+
 def _parse_sig(sig):
     """Config significance pairs -> ``((group, subgroup), (group, subgroup))`` list.
 

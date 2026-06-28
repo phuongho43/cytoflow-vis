@@ -149,6 +149,7 @@ kind = "dose_response"          # MFI / % positive vs dose
 | `density_2d` | `x`, `y` | `density_2d.png` (faceted per sample) |
 | `quadrant` | `x`, `y`, `labels`, `control`, `dose` | `quadrant.csv`, `*_density.png` (crosshairs + % per quadrant), `*_dose_response.png` (stacked) |
 | `dose_response` | `channels`, `dose`, `group`, `control` | `dose_response.png` (MFI + % positive vs dose) |
+| `titer` | `cells_seeded`, `channel`, `volume`, `control`, `linear_min`/`linear_max`, `poisson` | `titer.csv`, `titer.png` (functional TU/mL from a reporter dilution series; MOI/Poisson-corrected by default, `poisson = false` for the raw fraction) |
 
 Every parameter is optional and falls back to the top-level config / auto-detection.
 **% positive** and quadrant thresholds are set at `positive_percentile` (default
