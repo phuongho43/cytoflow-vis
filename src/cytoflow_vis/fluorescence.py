@@ -611,24 +611,26 @@ def _jitter_dose(x: np.ndarray, linthresh: float, spread: float = 0.05) -> np.nd
 _MARKERS = ["o", "s", "^", "D", "v", "P", "X"]
 
 
-def _dose_series(ax, df, dose_col, y_col, color, linthresh, marker="o", label=None) -> set:
-    """Draw one dose-response series: faint replicate points + mean ± SD curve.
+def _dose_series(ax, df, dose_col, y_col, color, linthresh, marker="o", label=None,
+                 errorbar="sd") -> set:
+    """Draw one dose-response series: faint replicate points + mean ± error curve.
 
     Replicate points are jittered horizontally so a tight cluster stays visible
     beside (not behind) the mean marker; ``marker`` shapes the series so it reads
-    apart from others even where lines overlap. Returns the set of replicate
-    counts seen (for an ``n`` annotation).
+    apart from others even where lines overlap. ``errorbar`` selects the bar
+    (``sd``/``sem``/``ci``). Returns the set of replicate counts seen.
     """
     x_pts = pd.to_numeric(df[dose_col], errors="coerce").to_numpy()
     ax.scatter(_jitter_dose(x_pts, linthresh), df[y_col], s=42, color=color, alpha=0.55,
                marker=marker, linewidths=0, zorder=3)
     agg = _dose_summary(df, dose_col, y_col)
+    err = _series_err(agg, errorbar)
     # A white underline gives the line its halo (so crossing lines stay separable)
     # without haloing the markers. The coloured line *with* its marker then carries
     # the label, so the legend handle is a proper line+marker (not marker-only).
     ax.plot(agg["_dose"], agg["mean"], color="white", lw=6.5, zorder=3.8,
             solid_capstyle="round", solid_joinstyle="round")
-    ax.errorbar(agg["_dose"], agg["mean"], yerr=agg["sd"], fmt="none", ecolor=color,
+    ax.errorbar(agg["_dose"], agg["mean"], yerr=err, fmt="none", ecolor=color,
                 elinewidth=2.5, capsize=6, capthick=2.5, zorder=3.9)
     ax.plot(agg["_dose"], agg["mean"], color=color, lw=3.5, marker=marker, markersize=11,
             markeredgecolor="white", markeredgewidth=1.0, zorder=4, label=label)
@@ -648,18 +650,19 @@ def plot_dose_response(
     percent: bool = False,
     show_n: bool = True,
     show_legend: bool = True,
+    errorbar: str = "sd",
     logx: bool = True,
 ) -> plt.Axes:
     """Dose-response of ``y_col`` vs ``dose_col`` with per-replicate detail.
 
     Each biological replicate is drawn as a faint individual point; the mean
-    across replicates is the bold connected curve with mean ± SD error bars (no
-    pseudoreplication — replicates are shown, not pooled). One series per
-    ``group_col`` value (e.g. cell line); a lone series uses a single accent.
-    ``group_label`` titles the legend (defaulting to ``group_col``). Colours
-    follow the data-type convention (categorical groups -> Okabe-Ito);
-    ``percent`` pins the y-axis to 0-100 %, otherwise raw MFI gets K/M ticks.
-    Expects the ``rc()`` context.
+    across replicates is the bold connected curve with mean ± error bars
+    (``errorbar`` = ``sd``/``sem``/``ci``; no pseudoreplication — replicates are
+    shown, not pooled). One series per ``group_col`` value (e.g. cell line); a
+    lone series uses a single accent. ``group_label`` titles the legend
+    (defaulting to ``group_col``). Colours follow the data-type convention
+    (categorical groups -> Okabe-Ito); ``percent`` pins the y-axis to 0-100 %,
+    otherwise raw MFI gets K/M ticks. Expects the ``rc()`` context.
     """
     if group_col and group_col in stats_df and stats_df[group_col].nunique() > 1:
         series = [(gval, sub) for gval, sub in stats_df.groupby(group_col)]
@@ -679,7 +682,8 @@ def plot_dose_response(
     for i, (gval, sub) in enumerate(series):
         n_reps |= _dose_series(ax, sub, dose_col, y_col, colors[i], linthresh,
                                marker=_MARKERS[i % len(_MARKERS)] if multi else "o",
-                               label=str(gval) if gval is not None else None)
+                               label=str(gval) if gval is not None else None,
+                               errorbar=errorbar)
 
     if logx:
         # log region starts at the smallest positive dose so 0/fractional doses
@@ -717,12 +721,51 @@ def _natural_key(v):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(v))]
 
 
-def _ci_halfwidth(vals: np.ndarray, ci: float = 1.96) -> float:
-    """Half-width of the (normal-approx) confidence interval: ``ci * SEM``."""
+_ERRORBAR_LABELS = {"sd": "SD", "sem": "SEM", "ci": "95% CI"}
+
+
+def errorbar_label(kind: str) -> str:
+    """Human label for an error-bar kind (for figure captions)."""
+    return _ERRORBAR_LABELS.get(kind, kind)
+
+
+def _errorbar_halfwidth(vals: np.ndarray, kind: str = "sd") -> float:
+    """Half-width of an error bar for ``vals``.
+
+    ``"sd"`` = standard deviation (spread of the data; the transparent default),
+    ``"sem"`` = SD/sqrt(n) (precision of the mean), ``"ci"`` = a proper 95 %
+    confidence interval using the t-distribution (t(n-1) x SEM, not the 1.96
+    normal approximation, which understates the interval at small n). 0 for n<2.
+    """
     vals = np.asarray(vals, dtype=float)
-    if vals.size < 2:
+    n = vals.size
+    if n < 2:
         return 0.0
-    return float(ci) * float(np.std(vals, ddof=1)) / np.sqrt(vals.size)
+    sd = float(np.std(vals, ddof=1))
+    if kind == "sd":
+        return sd
+    sem = sd / np.sqrt(n)
+    if kind == "sem":
+        return sem
+    if kind == "ci":
+        return float(sp_stats.t.ppf(0.975, n - 1)) * sem
+    raise ValueError(f"unknown errorbar kind {kind!r}; use 'sd', 'sem' or 'ci'")
+
+
+def _series_err(agg: pd.DataFrame, kind: str = "sd") -> np.ndarray:
+    """Per-row error half-width from an aggregate (``sd``, ``n`` columns)."""
+    sd = np.nan_to_num(agg["sd"].to_numpy(dtype=float))
+    n = agg["n"].to_numpy(dtype=float)
+    if kind == "sd":
+        return sd
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sem = np.where(n > 1, sd / np.sqrt(n), 0.0)
+    if kind == "sem":
+        return sem
+    if kind == "ci":
+        tmult = np.array([float(sp_stats.t.ppf(0.975, k - 1)) if k > 1 else 0.0 for k in n])
+        return tmult * sem
+    raise ValueError(f"unknown errorbar kind {kind!r}; use 'sd', 'sem' or 'ci'")
 
 
 def _p_stars(pval: float) -> str:
@@ -736,7 +779,7 @@ def _p_stars(pval: float) -> str:
     return "ns"
 
 
-def _draw_sig_brackets(ax, pos: dict, comparisons, ci: float, ref_span: float) -> float:
+def _draw_sig_brackets(ax, pos: dict, comparisons, errorbar: str, ref_span: float) -> float:
     """Draw t-test significance brackets between pairs of categorical positions.
 
     ``pos`` maps ``(group, subgroup)`` -> ``(x, values)``. ``comparisons`` is a
@@ -747,7 +790,7 @@ def _draw_sig_brackets(ax, pos: dict, comparisons, ci: float, ref_span: float) -
     markers even when the data sits low on the axis). Returns the new top y.
     """
     def height(vals):
-        return max(float(vals.max()), float(vals.mean()) + _ci_halfwidth(vals, ci))
+        return max(float(vals.max()), float(vals.mean()) + _errorbar_halfwidth(vals, errorbar))
 
     heights = [(x, height(v)) for x, v in pos.values() if v.size]
     dy = (ref_span or 1.0) / 18.0
@@ -795,16 +838,17 @@ def plot_categorical(
     order=None,
     subgroup_order=None,
     percent: bool = False,
-    ci: float = 1.96,
+    errorbar: str = "sd",
     seed: int = 0,
 ) -> plt.Axes:
-    """Categorical comparison: jittered replicate points + mean ± CI per group.
+    """Categorical comparison: jittered replicate points + mean ± error per group.
 
     For unordered groups (e.g. CAR constructs). Each biological replicate is a
-    faint point; the mean with a ``ci``×SEM error bar sits on top. An optional
-    ``subgroup_col`` splits each group into dodged, differently-shaped/coloured
-    series (with a legend). ``comparisons`` draws t-test significance brackets
-    between ``(group, subgroup)`` position pairs. Expects the ``rc()`` context.
+    faint point; the mean with an ``errorbar`` (``sd``/``sem``/``ci``) sits on
+    top. An optional ``subgroup_col`` splits each group into dodged,
+    differently-shaped/coloured series (with a legend). ``comparisons`` draws
+    t-test significance brackets between ``(group, subgroup)`` position pairs.
+    Expects the ``rc()`` context.
     """
     rng = np.random.default_rng(seed)
     groups = list(order) if order else sorted(stats_df[group_col].dropna().unique(), key=_natural_key)
@@ -844,8 +888,8 @@ def plot_categorical(
             ax.scatter(x + jitter, vals, s=42, color=color, alpha=0.55, marker=marker,
                        linewidths=0, zorder=3)
             if vals.size:
-                ax.errorbar(x, vals.mean(), yerr=_ci_halfwidth(vals, ci), fmt=marker,
-                            color=color, ecolor=color, elinewidth=2.5, capsize=6,
+                ax.errorbar(x, vals.mean(), yerr=_errorbar_halfwidth(vals, errorbar),
+                            fmt=marker, color=color, ecolor=color, elinewidth=2.5, capsize=6,
                             capthick=2.5, markersize=11, markeredgecolor="white",
                             markeredgewidth=1.0, zorder=5,
                             label=_fmt_value(sval) if subgroup_col and gi == 0 else None)
@@ -856,13 +900,13 @@ def plot_categorical(
     ax.set_xlabel(group_label or group_col)
     ax.set_ylabel(y_label or y_col)
 
-    tops = [v.mean() + _ci_halfwidth(v, ci) for _, v in pos.values() if v.size]
+    tops = [v.mean() + _errorbar_halfwidth(v, errorbar) for _, v in pos.values() if v.size]
     raw = [v.max() for _, v in pos.values() if v.size]
     data_top = max(tops + raw + [0.0])
     # bracket spacing scales with the axis range (100 for a % axis) so brackets
     # clear the markers even when the data sits low on the axis.
     ref_span = 100.0 if percent else (data_top or 1.0)
-    top = _draw_sig_brackets(ax, pos, comparisons, ci, ref_span) if comparisons else data_top
+    top = _draw_sig_brackets(ax, pos, comparisons, errorbar, ref_span) if comparisons else data_top
     if percent:
         # Headroom above 100 for brackets, but a percentage can't exceed 100 -
         # cap the labelled ticks there.
@@ -1091,15 +1135,17 @@ def plot_quadrant_dose_response(
     dose_label: str | None = None,
     legend_title: str = "Population",
     show_n: bool = True,
+    errorbar: str = "sd",
     logx: bool = True,
 ) -> plt.Axes:
     """Per-quadrant % vs dose: one curve per quadrant with replicate detail.
 
     Each of the four quadrant fractions is a series with faint per-replicate
-    points and a mean ± SD curve (the same construction as the dose-response),
-    coloured from the categorical palette. The legend is titled ``legend_title``;
-    with ``show_n`` the replicate count is appended (``"Population (n = 3)"``),
-    else the caller reports n once at the figure level. Expects the ``rc()`` context.
+    points and a mean ± error curve (``errorbar`` = ``sd``/``sem``/``ci``, the
+    same construction as the dose-response), coloured from the categorical
+    palette. The legend is titled ``legend_title``; with ``show_n`` the replicate
+    count is appended (``"Population (n = 3)"``), else the caller reports n once
+    at the figure level. Expects the ``rc()`` context.
     """
     labels = _resolve_labels(labels)
     sub = quad_df[np.isfinite(pd.to_numeric(quad_df[dose_col], errors="coerce"))].copy()
@@ -1109,7 +1155,8 @@ def plot_quadrant_dose_response(
     n_reps = set()
     for i, k in enumerate(QUADRANT_KEYS):
         n_reps |= _dose_series(ax, sub, dose_col, f"pct_{labels[k]}", colors[i], linthresh,
-                               marker=_MARKERS[i % len(_MARKERS)], label=labels[k])
+                               marker=_MARKERS[i % len(_MARKERS)], label=labels[k],
+                               errorbar=errorbar)
     if logx:
         _symlog_dose_axis(ax, linthresh)
     ax.set_xlabel(dose_label or dose_col)

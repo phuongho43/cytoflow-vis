@@ -214,14 +214,15 @@ def _density_2d(ctx, x=None, y=None, per_sample=None, qc=False, unit=None,
 @register("dose_response")
 def _dose_response(ctx, channels=None, dose=None, dose_label=None, group=None,
                    group_label=None, control=None, positive_percentile=None,
-                   show_n=False, out="dose_response.png"):
-    """MFI and % positive vs dose: per-replicate points + mean ± SD curve.
+                   errorbar="sd", show_n=False, out="dose_response.png"):
+    """MFI and % positive vs dose: per-replicate points + mean ± error curve.
 
     A grid of metrics (MFI, % positive) by channel. ``dose_label`` sets the
     shared x-axis title with units (e.g. ``"Dose (mM)"``); ``group_label``
     titles the per-group legend (e.g. ``"Cell line"`` for a ``cell_line``
     column); channel axes use the channel-label map (e.g. "BL1-A" -> "GFP").
-    Set ``show_n = true`` to print a ``mean ± SD, n = N`` note on the figure
+    ``errorbar`` is ``"sd"`` (default), ``"sem"`` or ``"ci"`` (t-based 95 % CI).
+    Set ``show_n = true`` to print a ``mean ± <error>, n = N`` note on the figure
     (off by default — usually stated in the figure caption instead).
     """
     channels = channels or ctx.channels
@@ -256,7 +257,7 @@ def _dose_response(ctx, channels=None, dose=None, dose_label=None, group=None,
                 fl.plot_dose_response(
                     axes[r][c], stats, dose, f"{prefix}_{ch}", group_col=dr_group,
                     group_label=group_label, dose_label=dose_label or dose,
-                    percent=percent, show_n=False, show_legend=False,
+                    percent=percent, show_n=False, show_legend=False, errorbar=errorbar,
                     y_label=f"{metric_label} ({ctx.label_for(ch)})",
                 )
         # One shared group legend for the whole figure (the groups are the same in
@@ -270,8 +271,9 @@ def _dose_response(ctx, channels=None, dose=None, dose_label=None, group=None,
         # SD of n biological replicates); off by default — usually in the caption.
         n = _replicate_n(stats, dose, dr_group) if show_n else None
         if n is not None:
-            fig.text(0.99, 0.016, f"mean ± SD, n = {n}", ha="right", va="center",
-                     color=INK, fontweight="bold", fontsize=plt.rcParams["xtick.labelsize"])
+            fig.text(0.99, 0.016, f"mean ± {fl.errorbar_label(errorbar)}, n = {n}",
+                     ha="right", va="center", color=INK, fontweight="bold",
+                     fontsize=plt.rcParams["xtick.labelsize"])
         path = ctx.out_dir / out
         fig.savefig(path)
         plt.close(fig)
@@ -294,14 +296,15 @@ def _parse_sig(sig):
 @register("categorical")
 def _categorical(ctx, channels=None, group=None, group_label=None, subgroup=None,
                  subgroup_label=None, control=None, positive_percentile=None, sig=None,
-                 order=None, subgroup_order=None, out="categorical.png"):
+                 order=None, subgroup_order=None, errorbar="sd", out="categorical.png"):
     """Categorical comparison for unordered groups (e.g. CAR_A vs CAR_B).
 
     A grid of metrics (MFI, % positive) by channel; the ``group`` condition is
     the categorical x-axis (auto-detected if omitted), with jittered replicate
-    points + mean ± 95% CI. An optional ``subgroup`` condition dodges each group
-    into shaped/coloured series with a shared legend. ``sig`` lists pairs to mark
-    with a two-sample t-test bracket (``*/**/***/ns``).
+    points + mean ± error (``errorbar`` = ``"sd"`` default / ``"sem"`` / ``"ci"``
+    t-based 95 % CI). An optional ``subgroup`` condition dodges each group into
+    shaped/coloured series with a shared legend. ``sig`` lists pairs to mark with
+    a two-sample t-test bracket (``*/**/***/ns``).
     """
     channels = channels or ctx.channels
     group = group if group is not None else ctx.group_col
@@ -332,7 +335,8 @@ def _categorical(ctx, channels=None, group=None, group_label=None, subgroup=None
                     subgroup_col=subgroup if has_sub else None,
                     group_label=group_label or group, order=order,
                     subgroup_order=subgroup_order, comparisons=comparisons,
-                    percent=percent, y_label=f"{metric_label} ({ctx.label_for(ch)})",
+                    percent=percent, errorbar=errorbar,
+                    y_label=f"{metric_label} ({ctx.label_for(ch)})",
                 )
         if has_sub:
             handles, lbls = axes[0][0].get_legend_handles_labels()
@@ -348,15 +352,16 @@ def _categorical(ctx, channels=None, group=None, group_label=None, subgroup=None
 @register("quadrant")
 def _quadrant(ctx, x, y, control=None, positive_percentile=None, labels=None,
               dose=None, dose_label=None, unit=None, xlabel=None, ylabel=None,
-              legend_title="Population", cmap="viridis", show_n=False, row=None, col=None,
-              row_order=None, col_order=None, out="quadrant.csv"):
+              legend_title="Population", cmap="viridis", show_n=False, errorbar="sd",
+              row=None, col=None, row_order=None, col_order=None, out="quadrant.csv"):
     """Two-threshold quadrant analysis: % in each of four populations.
 
     Writes a per-sample CSV, a faceted density plot (representative replicate
     per condition) with crosshairs and per-quadrant labels, and (if a dose
-    column is available) a per-quadrant dose-response with mean ± SD across
-    replicates. ``unit`` labels the density panels; give ``row`` and ``col`` to
-    lay them out as a condition grid (``row_order`` / ``col_order`` set the
+    column is available) a per-quadrant dose-response with mean ± error
+    (``errorbar`` = ``sd``/``sem``/``ci``) across replicates. ``unit`` labels the
+    density panels; give ``row`` and ``col`` to lay them out as a condition grid
+    (``row_order`` / ``col_order`` set the
     sequence); ``dose_label`` titles the dose axis; ``xlabel``/``ylabel`` default
     to the channel-label map.
     """
@@ -388,12 +393,13 @@ def _quadrant(ctx, x, y, control=None, positive_percentile=None, labels=None,
                 fig.get_layout_engine().set(rect=(0, 0.035, 1, 0.93))  # bottom strip for n
             fl.plot_quadrant_dose_response(
                 ax, quad, dose, labels=labels, dose_label=dose_label or dose,
-                legend_title=legend_title, show_n=False,
+                legend_title=legend_title, show_n=False, errorbar=errorbar,
             )
             n = _replicate_n(quad, dose) if show_n else None
             if n is not None:
-                fig.text(0.99, 0.016, f"mean ± SD, n = {n}", ha="right", va="center",
-                         color=INK, fontweight="bold", fontsize=plt.rcParams["xtick.labelsize"])
+                fig.text(0.99, 0.016, f"mean ± {fl.errorbar_label(errorbar)}, n = {n}",
+                         ha="right", va="center", color=INK, fontweight="bold",
+                         fontsize=plt.rcParams["xtick.labelsize"])
             dr_path = ctx.out_dir / f"{csv_path.stem}_dose_response.png"
             fig.savefig(dr_path)
             plt.close(fig)
