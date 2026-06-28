@@ -809,13 +809,22 @@ def plot_titer(
     if vols:
         ax.set_xlim(-0.5, len(vols) - 0.5)
     ax.set_yscale("log")
+    # Pad the y-axis (in log space) so the wells sit toward the middle, with
+    # headroom above (clear of the legend strip) and below (clear of the formula).
+    finite = y[np.isfinite(y)]
+    if finite.size:
+        lo, hi = np.log10(finite.min()), np.log10(finite.max())
+        pad = max(0.6 * (hi - lo), 0.18)
+        ax.set_ylim(10 ** (lo - pad), 10 ** (hi + pad))
     ax.set_xlabel(volume_label or volume_col)
     ax.set_ylabel("Titer (TU/mL)")
     # Spell out the per-well formula behind the points, in the lower-left corner.
     ax.text(0.035, 0.04,
             r"$\mathrm{TU/mL}=\frac{N_\mathrm{cells}\cdot \mathrm{MOI}}{V_\mathrm{mL}}$"
             "\n"
-            r"$\mathrm{MOI}=-\ln(1-f)$",
+            r"$\mathrm{MOI}=-\ln(1-f)$"
+            "\n"
+            r"$f$ = positive fraction",
             transform=ax.transAxes, ha="left", va="bottom", color=INK,
             fontsize=plt.rcParams["xtick.labelsize"],
             bbox=dict(boxstyle="round,pad=0.35", fc="white", ec=INK, lw=1.2, alpha=0.85))
