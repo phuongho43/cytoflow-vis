@@ -157,6 +157,13 @@ untreated control. Top-level keys: `out`, `gates`, `gate_names`, `subsample`,
 `per_sample`, `positive_percentile`, `compensation`, and
 `logicle = { param_t = ..., ... }`.
 
+Quantitative plots (`dose_response`, `categorical`, `quadrant`) draw per-replicate
+points with **mean ± SD** by default (`errorbar = "sd" | "sem" | "ci"`, where
+`ci` is a t-based 95 % CI) and optional t-test significance brackets. Before
+reporting, read **[ASSUMPTIONS.md](ASSUMPTIONS.md)** — it documents the statistical
+and analysis assumptions/caveats (error bars, uncorrected pairwise tests,
+thresholds requiring a true-negative control, no curve fitting yet, etc.).
+
 ### Spillover compensation
 
 Spillover between fluorochromes is corrected at load time, **before** the
