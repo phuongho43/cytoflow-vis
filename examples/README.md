@@ -23,5 +23,8 @@ your instrument's channels and update the `[channel_labels]` table to match.
 |--------|------------|-------------|
 | [`lentiviral_titration/`](lentiviral_titration/) | Serial-dilution titration of a fluorescent-reporter lentivirus | functional titer (TU/mL) + % reporter+ vs virus volume |
 
+The titration template includes a full wet-lab + analysis walkthrough:
+[`lentiviral_titration/PROTOCOL.md`](lentiviral_titration/PROTOCOL.md).
+
 More templates (CAR / activation-marker panels, dose-response titrations, …) to
 follow.

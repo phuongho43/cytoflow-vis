@@ -6,6 +6,8 @@
 # well. The functional titer is computed from the wells in the linear range
 # (see "Computing the titer" at the bottom of this file).
 #
+# Full wet-lab + analysis walkthrough: see PROTOCOL.md in this folder.
+#
 # Workflow:
 #   1. Drop the FCS files into ./data/ (filenames must match samples.csv).
 #   2. Draw the shared FSC/SSC gates once:   uv run gate-cells --sheet samples.csv --data data --out results
