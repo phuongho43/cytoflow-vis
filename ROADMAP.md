@@ -40,6 +40,30 @@ direction sketch and ordering is open to change.
       % at each node. We currently stop at cells → singlets.
 - [ ] **Violin / box option for the categorical comparison.** Alternative to the
       strip + CI when a fuller distribution view is wanted.
+- [ ] **Significance testing: ANOVA + post-hoc, with auto-selected tests.**
+      Current significance brackets are *uncorrected pairwise Welch t-tests* —
+      fine for two groups or a few planned contrasts, but the wrong tool once
+      there are many comparisons or a two-factor design. Add:
+      - one-way **ANOVA** (≥3 groups) → post-hoc (**Tukey** all-pairwise, or
+        **Dunnett** vs a named control);
+      - two-way **ANOVA** for `group × subgroup` designs, reporting the main
+        effects *and the interaction* (the interaction is often the real
+        question, e.g. "does CAR-A respond to stimulation more than CAR-B?");
+      - multiple-comparison **correction** (Holm/Bonferroni) for sets of
+        planned pairwise brackets.
+
+      **Auto-selection** is feasible from structure the package already tracks
+      (group/subgroup columns, their data types, level counts, whether a control
+      is named): 1 factor/2 levels → t-test; 1 factor/≥3 → one-way ANOVA; two
+      factors → two-way ANOVA + interaction; explicit `sig` pairs → planned
+      comparisons + correction. Follow the existing "auto-detect a sensible
+      default, but report it and allow override" pattern. **Do not** auto-switch
+      parametric↔non-parametric from underpowered small-n normality tests
+      (default to robust Welch variants; let the user opt into Mann–Whitney /
+      Kruskal–Wallis), **do not** auto-decide paired vs unpaired (it's metadata
+      the package can't infer — default unpaired, make it explicit), and treat a
+      numeric factor as categorical-vs-trend a user choice. See
+      [ASSUMPTIONS.md](ASSUMPTIONS.md).
 
 ## Considered but deprioritized
 
