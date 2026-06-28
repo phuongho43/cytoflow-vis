@@ -26,22 +26,27 @@ carry a single integration.
 > biosafety approval, use a Class II cabinet, and decontaminate all
 > virus-contacted plasticware/media.
 
-**You will need:** HEK293T cells, the lentiviral prep, a 24-well plate, polybrene
-(optional), and a flow cytometer with a laser/filter for your reporter (GFP →
-488 nm excitation, ~510–530 nm emission; "BL1"/"FITC" channel).
+**You will need:** HEK293T cells, the lentiviral prep (~100 µL), a 12-well plate,
+polybrene (optional), and a flow cytometer with a laser/filter for your reporter
+(GFP → 488 nm excitation, ~510–530 nm emission; "BL1"/"FITC" channel).
 
-1. **Seed a fixed, counted number of HEK293T per well (day 0).** Count carefully —
-   e.g. **1 × 10⁵ cells/well** in a 24-well plate. **Write this number down: it is
-   `cells_seeded` in the analysis and the titer scales linearly with it.**
+1. **Seed and transduce in one step.** Plate **1 × 10⁵ HEK293T in 0.5 mL DMEM per
+   well** of a 12-well plate and **add the virus to each well at the same time**
+   (no separate next-day transduction). Because virus goes on at seeding, **100K
+   is the cell count at the moment of transduction** — that is exactly the number
+   the titer formula needs, so use `cells_seeded = 100000` and do **not** re-count
+   at harvest (see the note below). Optionally add **polybrene (4–8 µg/mL)**,
+   identical across wells.
 
-2. **Transduce with a serial dilution (day 1).** When cells are ~50–70%
-   confluent, add a dilution series of the virus, e.g. **0, 1, 2.5, 5, 10, 25,
-   50, 100 µL** per well (top up to a constant total volume with medium), **one
-   well per dilution**. The **0 µL well is the uninfected/mock control** — it sets
-   the GFP+ threshold and is essential. Optionally add **polybrene (4–8 µg/mL)** to
-   aid uptake; keep it identical across wells. The wide span of dilutions is your
-   safety net here: with no replicates, you want several dilutions so at least a
-   few land in the usable 5–60% range.
+2. **Make the dilution series.** From your 100 µL prep, take **~50 µL** and prepare
+   a serial dilution, then add the appropriate amount to each well to give an
+   **original-prep-equivalent volume** of e.g. **0, 1, 2.5, 5, 10, 25, 50, 100 µL**
+   per well — **one well per dilution**. Record this prep-equivalent volume as
+   `virus_uL` in `samples.csv` (e.g. 10 µL of a 1:10 dilution → `virus_uL = 1`), so
+   the reported titer refers to your **undiluted** prep. The **0 µL well is the
+   uninfected/mock control** — it sets the GFP+ threshold and is essential. The
+   wide span of dilutions is your safety net: with no replicates, you want several
+   dilutions so at least a few land in the usable 5–60% range.
 
 3. **Incubate 48–72 h** to let the reporter express. Aim to keep the highest
    useful wells **below ~30% positive** if you can — the titer comes from the
@@ -53,6 +58,15 @@ carry a single integration.
    cytometer settings** (same PMT voltages/gains). Record ≥10,000 events/well.
 
 5. **Export one FCS file per well.**
+
+> **Why `cells_seeded` is the transduction-time count, not the harvest count.**
+> The titer is `cells_seeded × MOI / volume`, and `MOI = −ln(1 − f)` is defined
+> *per cell present when the virus infects*. The measured % positive is a ratio
+> that is preserved as cells divide (a transduced cell's progeny stay GFP+), so
+> all the absolute-titer information sits in the cell number at transduction.
+> Counting at harvest would multiply in the 48–72 h of HEK293T divisions and
+> overestimate the titer several-fold. Using 100K is both correct and more
+> reproducible than a harvest count.
 
 ---
 
