@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from cytoflow_vis import fluorescence as fl
-from cytoflow_vis.style import rc
+from cytoflow_vis.style import INK, rc
 
 
 @dataclass
@@ -107,6 +107,13 @@ def detect_control(populations, control_arg=None, dose_col=None):
     return populations[0]["sample_id"]
 
 
+def _replicate_n(stats_df, dose_col, group_col=None):
+    """Typical replicate count per condition (None if it isn't uniform)."""
+    keys = [dose_col] + ([group_col] if group_col else [])
+    sizes = stats_df.groupby(keys).size()
+    return int(sizes.iloc[0]) if sizes.nunique() == 1 else None
+
+
 def dose_determines_group(populations, group_col, dose_col) -> bool:
     """True if each dose value maps to a single group value (group redundant)."""
     if group_col is None or dose_col is None:
@@ -175,7 +182,7 @@ def _histograms(ctx, channels=None, group=None, group_label=None, colors=None,
 
 @register("density_2d")
 def _density_2d(ctx, x=None, y=None, per_sample=None, qc=False, unit=None,
-                xlabel=None, ylabel=None, out="density_2d.png"):
+                xlabel=None, ylabel=None, cmap="viridis", out="density_2d.png"):
     """Faceted 2D logicle density.
 
     One panel per condition (representative replicate) by default; set
@@ -192,7 +199,8 @@ def _density_2d(ctx, x=None, y=None, per_sample=None, qc=False, unit=None,
     ylabel = ylabel or ctx.label_for(y)
     with mpl.rc_context(rc(scale=0.5)):  # small facet panels -> lighter weight
         fig = fl.plot_2d_density(ctx.populations, x, y, ctx.xform, per_sample=per_sample,
-                                 mode=mode, unit=unit, xlabel=xlabel, ylabel=ylabel)
+                                 mode=mode, unit=unit, xlabel=xlabel, ylabel=ylabel,
+                                 cmap=cmap)
         path = ctx.out_dir / out
         fig.savefig(path)
         plt.close(fig)
@@ -200,9 +208,18 @@ def _density_2d(ctx, x=None, y=None, per_sample=None, qc=False, unit=None,
 
 
 @register("dose_response")
-def _dose_response(ctx, channels=None, dose=None, group=None, control=None,
-                   positive_percentile=None, out="dose_response.png"):
-    """MFI and % positive vs dose, one connected curve through the control."""
+def _dose_response(ctx, channels=None, dose=None, dose_label=None, group=None,
+                   group_label=None, control=None, positive_percentile=None,
+                   show_n=False, out="dose_response.png"):
+    """MFI and % positive vs dose: per-replicate points + mean ± SD curve.
+
+    A grid of metrics (MFI, % positive) by channel. ``dose_label`` sets the
+    shared x-axis title with units (e.g. ``"Dose (mM)"``); ``group_label``
+    titles the per-group legend (e.g. ``"Cell line"`` for a ``cell_line``
+    column); channel axes use the channel-label map (e.g. "BL1-A" -> "GFP").
+    Set ``show_n = true`` to print a ``mean ± SD, n = N`` note on the figure
+    (off by default — usually stated in the figure caption instead).
+    """
     channels = channels or ctx.channels
     dose = dose if dose is not None else ctx.dose_col
     if dose is None:
@@ -214,29 +231,60 @@ def _dose_response(ctx, channels=None, dose=None, group=None, control=None,
         ctx.populations, channels, ctx.xform, control_id=control, positive_percentile=pct
     )
     dr_group = None if dose_determines_group(ctx.populations, group, dose) else group
-    metrics = [("MFI", "MFI")] + ([("pct_pos", "% positive")] if thresholds else [])
-    fig, axes = plt.subplots(len(metrics), len(channels),
-                             figsize=(6 * len(channels), 5 * len(metrics)), squeeze=False)
-    for r, (prefix, ylabel) in enumerate(metrics):
-        for c, ch in enumerate(channels):
-            ax = axes[r][c]
-            fl.plot_dose_response(ax, stats, dose, f"{prefix}_{ch}", group_col=dr_group)
-            ax.set_ylabel(f"{ylabel} {ch}")
-    fig.tight_layout()
-    path = ctx.out_dir / out
-    fig.savefig(path, dpi=120, bbox_inches="tight")
-    plt.close(fig)
+    metrics = [("MFI", "MFI", False)] + (
+        [("pct_pos", "% positive", True)] if thresholds else []
+    )
+    with mpl.rc_context(rc(scale=0.8)):
+        fig, axes = plt.subplots(
+            len(metrics), len(channels),
+            figsize=(6.5 * len(channels), 5.5 * len(metrics)),
+            squeeze=False, layout="constrained",
+        )
+        # Reserve a thin bottom strip for the figure-level n note (only when
+        # shown) and a top strip for the shared group legend, so neither collides
+        # with the panel labels.
+        has_groups = dr_group is not None and stats[dr_group].nunique() > 1
+        bottom = 0.035 if show_n else 0.0
+        top = 0.915 if has_groups else 1.0
+        fig.get_layout_engine().set(rect=(0, bottom, 1, top - bottom))
+        for r, (prefix, metric_label, percent) in enumerate(metrics):
+            for c, ch in enumerate(channels):
+                fl.plot_dose_response(
+                    axes[r][c], stats, dose, f"{prefix}_{ch}", group_col=dr_group,
+                    group_label=group_label, dose_label=dose_label or dose,
+                    percent=percent, show_n=False, show_legend=False,
+                    y_label=f"{metric_label} ({ctx.label_for(ch)})",
+                )
+        # One shared group legend for the whole figure (the groups are the same in
+        # every panel), instead of repeating it per panel.
+        if has_groups:
+            handles, lbls = axes[0][0].get_legend_handles_labels()
+            leg = fig.legend(handles, lbls, title=group_label or dr_group, frameon=False,
+                             loc="upper center", bbox_to_anchor=(0.5, 0.995), ncol=len(lbls))
+            leg.get_title().set_fontweight("bold")
+        # Optionally report the replicate count once for the whole figure (mean ±
+        # SD of n biological replicates); off by default — usually in the caption.
+        n = _replicate_n(stats, dose, dr_group) if show_n else None
+        if n is not None:
+            fig.text(0.99, 0.016, f"mean ± SD, n = {n}", ha="right", va="center",
+                     color=INK, fontweight="bold", fontsize=plt.rcParams["xtick.labelsize"])
+        path = ctx.out_dir / out
+        fig.savefig(path)
+        plt.close(fig)
     return f"dose_response -> {path.name}"
 
 
 @register("quadrant")
 def _quadrant(ctx, x, y, control=None, positive_percentile=None, labels=None,
-              dose=None, out="quadrant.csv"):
+              dose=None, dose_label=None, unit=None, xlabel=None, ylabel=None,
+              legend_title="Population", cmap="viridis", show_n=False, out="quadrant.csv"):
     """Two-threshold quadrant analysis: % in each of four populations.
 
-    Writes a per-sample CSV, a faceted density plot with crosshairs and
-    per-quadrant labels, and (if a dose column is available) a stacked
-    dose-response of the quadrant fractions.
+    Writes a per-sample CSV, a faceted density plot (representative replicate
+    per condition) with crosshairs and per-quadrant labels, and (if a dose
+    column is available) a per-quadrant dose-response with mean ± SD across
+    replicates. ``unit`` labels the density panels; ``dose_label`` titles the
+    dose axis; ``xlabel``/``ylabel`` default to the channel-label map.
     """
     control = control if control is not None else ctx.control_id
     pct = positive_percentile if positive_percentile is not None else ctx.positive_percentile
@@ -246,21 +294,33 @@ def _quadrant(ctx, x, y, control=None, positive_percentile=None, labels=None,
     quad.to_csv(csv_path, index=False)
     written = [csv_path.name]
 
-    fig = fl.plot_quadrants(
-        ctx.populations, x, y, ctx.xform, thr[x], thr[y], quad, labels=labels,
-        per_sample=ctx.per_sample,
-    )
-    plot_path = ctx.out_dir / f"{csv_path.stem}_density.png"
-    fig.savefig(plot_path, dpi=110, bbox_inches="tight")
-    plt.close(fig)
+    with mpl.rc_context(rc(scale=0.5)):  # small facet panels -> lighter weight
+        fig = fl.plot_quadrants(
+            ctx.populations, x, y, ctx.xform, thr[x], thr[y], quad, labels=labels,
+            per_sample=ctx.per_sample, unit=unit, cmap=cmap,
+            xlabel=xlabel or ctx.label_for(x), ylabel=ylabel or ctx.label_for(y),
+        )
+        plot_path = ctx.out_dir / f"{csv_path.stem}_density.png"
+        fig.savefig(plot_path)
+        plt.close(fig)
     written.append(plot_path.name)
 
     dose = dose if dose is not None else ctx.dose_col
     if dose is not None:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        fl.plot_quadrant_dose_response(ax, quad, dose, labels=labels)
-        dr_path = ctx.out_dir / f"{csv_path.stem}_dose_response.png"
-        fig.savefig(dr_path, dpi=120, bbox_inches="tight")
-        plt.close(fig)
+        with mpl.rc_context(rc(scale=0.9)):
+            fig, ax = plt.subplots(figsize=(9, 6), layout="constrained")
+            if show_n:
+                fig.get_layout_engine().set(rect=(0, 0.035, 1, 0.93))  # bottom strip for n
+            fl.plot_quadrant_dose_response(
+                ax, quad, dose, labels=labels, dose_label=dose_label or dose,
+                legend_title=legend_title, show_n=False,
+            )
+            n = _replicate_n(quad, dose) if show_n else None
+            if n is not None:
+                fig.text(0.99, 0.016, f"mean ± SD, n = {n}", ha="right", va="center",
+                         color=INK, fontweight="bold", fontsize=plt.rcParams["xtick.labelsize"])
+            dr_path = ctx.out_dir / f"{csv_path.stem}_dose_response.png"
+            fig.savefig(dr_path)
+            plt.close(fig)
         written.append(dr_path.name)
     return "quadrant -> " + ", ".join(written)

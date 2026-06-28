@@ -136,7 +136,8 @@ def main(argv=None):
         ppx, ppy = pool_events(populations, x, y, per_sample=args.per_sample)
         with mpl.rc_context(rc()):
             fig, ax = plt.subplots(figsize=(9, 9))
-            density_plot(ppx, ppy, ax=ax, xlabel=x, ylabel=y, title=f"{stage.name} gate", colorbar=True)
+            density_plot(ppx, ppy, ax=ax, xlabel=x, ylabel=y, title=f"{stage.name} gate",
+                         cmap="viridis", colorbar=True)
             overlay_polygon(ax, vertices)
             fig.savefig(out_dir / f"gate_overlay_{stage.name}.png")
             plt.close(fig)
