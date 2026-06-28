@@ -18,6 +18,7 @@ from pathlib import Path
 import flowkit as fk
 import numpy as np
 from matplotlib.path import Path as MplPath
+from scipy.stats import chi2
 
 
 def draw_polygon_gate(
@@ -70,6 +71,93 @@ def draw_polygon_gate(
     if len(state["verts"]) < 3:
         raise RuntimeError("A polygon gate needs at least 3 vertices; none captured.")
     return state["verts"]
+
+
+# -- automatic gating ---------------------------------------------------------
+
+def _robust_gaussian(points: np.ndarray, support_frac: float = 0.5, iters: int = 10):
+    """Robust mean & covariance of the dense core (MCD-style concentration steps).
+
+    Iteratively keeps the ``support_frac`` of points closest (Mahalanobis) to the
+    current fit and refits, so a separate debris cloud or scattered outliers do
+    not drag the estimate. The covariance is then rescaled by the standard
+    consistency factor so it matches a full Gaussian rather than the trimmed core.
+    """
+    P = np.asarray(points, dtype=float)
+    n = len(P)
+    h = max(int(support_frac * n), P.shape[1] + 1)
+    mu = np.median(P, axis=0)
+    mad = np.median(np.abs(P - mu), axis=0) * 1.4826
+    mad[mad == 0] = 1.0
+    cov = np.diag(mad ** 2)
+    for _ in range(iters):
+        diff = P - mu
+        d2 = np.einsum("ij,jk,ik->i", diff, np.linalg.pinv(cov), diff)
+        core = P[np.argsort(d2)[:h]]
+        mu = core.mean(axis=0)
+        cov = np.cov(core.T)
+    # Consistency correction: the trimmed core underestimates spread.
+    q = chi2.ppf(h / n, 2)
+    cov *= (h / n) / chi2.cdf(q, 4)
+    return mu, cov
+
+
+def auto_ellipse_gate(x, y, coverage: float = 0.95, n_vertices: int = 40,
+                      support_frac: float = 0.5) -> list[tuple[float, float]]:
+    """Ellipse polygon around the dense main population (e.g. cells vs debris).
+
+    Fits a robust 2D Gaussian to the densest cluster and returns the iso-density
+    ellipse enclosing ``coverage`` of it as polygon vertices — a hands-off
+    replacement for hand-drawing the FSC/SSC cell gate.
+    """
+    P = np.column_stack([np.asarray(x, float), np.asarray(y, float)])
+    mu, cov = _robust_gaussian(P, support_frac=support_frac)
+    vals, vecs = np.linalg.eigh(cov)
+    vals = np.clip(vals, 1e-12, None)
+    r = np.sqrt(chi2.ppf(coverage, 2))
+    t = np.linspace(0, 2 * np.pi, n_vertices, endpoint=False)
+    circle = np.column_stack([np.cos(t), np.sin(t)])
+    ellipse = (circle * (r * np.sqrt(vals))) @ vecs.T + mu
+    return [tuple(map(float, v)) for v in ellipse]
+
+
+def auto_singlet_gate(x, y, k: float = 4.0, x_pct=(0.5, 99.5)) -> list[tuple[float, float]]:
+    """Constant-width band around the FSC-H/FSC-A singlet diagonal.
+
+    Singlets fall on a line ``FSC-H ≈ slope·FSC-A`` with roughly constant scatter;
+    doublets sit well below it. The slope is the **median height/area ratio**
+    (robust to a doublet minority, unlike a least-squares fit they would tilt),
+    and events are kept within ``k`` robust SDs of that line — a parallelogram of
+    constant vertical width, not an origin wedge that flares out at high FSC-A.
+    """
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    ok = x > 0
+    x, y = x[ok], y[ok]
+
+    slope = float(np.median(y / x))  # robust height/area ratio
+    resid = y - slope * x
+    c = np.median(resid)  # robust offset of the singlet line
+    s = np.median(np.abs(resid - c)) * 1.4826 or 1.0  # robust SD about the line
+    on_line = np.abs(resid - c) < 3 * s  # the singlets (drops off-line doublets)
+    x_lo, x_hi = np.percentile(x[on_line] if on_line.sum() >= 10 else x, list(x_pct))
+
+    def line(xx):
+        return slope * xx + c
+
+    return [(float(x_lo), float(line(x_lo) - k * s)), (float(x_hi), float(line(x_hi) - k * s)),
+            (float(x_hi), float(line(x_hi) + k * s)), (float(x_lo), float(line(x_lo) + k * s))]
+
+
+def auto_gate(stage_name: str, x, y) -> list[tuple[float, float]]:
+    """Compute an automatic polygon gate for a standard stage.
+
+    The ``singlets`` stage uses the height/area ratio wedge; every other stage
+    (e.g. ``cells``) uses the robust density ellipse.
+    """
+    if stage_name == "singlets":
+        return auto_singlet_gate(x, y)
+    return auto_ellipse_gate(x, y)
 
 
 def save_gate(

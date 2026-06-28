@@ -115,18 +115,19 @@ Open **`titration.toml`** and set two things to match your experiment:
 (Leave `control`, `dose`, the linear-range bounds, and `poisson` at their
 defaults unless you have a reason to change them — see *Interpreting* below.)
 
-### B3. Draw the gates (interactive, once)
+### B3. Place the gates (automatic, once)
 
 ```bash
 uv run gate-cells --sheet samples.csv --data data --out results
 ```
 
-A window opens for each of two gates in turn — first **cells** (SSC-A vs FSC-A,
-exclude debris), then **singlets** (FSC-H vs FSC-A, keep the diagonal). For each:
-**click to place polygon vertices** around the target population, drag to adjust,
-`Esc` to restart, **`Enter`** (or close the window) when happy. The gates are
-saved to `results/` as JSON and **reused automatically** on later runs (no
-re-clicking; pass `--redraw` to redo them).
+This places the two gates **automatically** — **cells** (SSC-A vs FSC-A, drops
+debris) then **singlets** (FSC-H vs FSC-A, keeps the diagonal) — and saves them to
+`results/` as JSON, **reused automatically** on later runs. **Open
+`results/gate_overlay_cells.png` and `gate_overlay_singlets.png` to confirm the
+gates sit on the right populations.** If a gate looks off, redo it by hand with
+`uv run gate-cells ... --manual` (click vertices, drag to adjust, `Esc` to
+restart, `Enter` when happy), or `--redraw` to recompute.
 
 ### B4. Compute the titer
 

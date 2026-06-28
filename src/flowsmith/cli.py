@@ -4,15 +4,18 @@ Usage (after `uv sync`):
 
     uv run gate-cells --sheet samples.csv --data data/ --out results/
 
-Gating stages (each drawn once on a pooled subsample, then applied to every
+Gating stages (each computed once on a pooled subsample, then applied to every
 sample's full event set):
 
     1. cells    SSC-A vs FSC-A   -- exclude low-scatter debris
     2. singlets FSC-H  vs FSC-A  -- keep the diagonal, exclude doublets/aggregates
 
-Each stage's polygon is filtered from the *previous* stage's population, so the
-singlet gate is drawn on the cells only. Drawn gates are saved per stage as
-``<stage>_gate.json`` and reused on the next run; pass --redraw to draw fresh.
+By default the gates are placed **automatically** (a robust density ellipse for
+cells, a height/area ratio wedge for singlets); pass ``--manual`` to draw them by
+hand instead. Each stage's polygon is filtered from the *previous* stage's
+population, so the singlet gate is computed on the cells only. Gates are saved
+per stage as ``<stage>_gate.json`` and reused on the next run; pass ``--redraw``
+to recompute. Either way, inspect ``gate_overlay_<stage>.png`` to verify the fit.
 """
 
 from __future__ import annotations
@@ -61,7 +64,9 @@ def parse_args(argv=None):
     p.add_argument("--data", required=True, help="Directory containing the FCS files.")
     p.add_argument("--out", default="results", help="Output directory (default: results/).")
     p.add_argument("--gates", default=None, help="Directory for <stage>_gate.json files (default: --out).")
-    p.add_argument("--redraw", action="store_true", help="Re-draw every gate even if its file exists.")
+    p.add_argument("--manual", action="store_true",
+                   help="Draw each gate by hand (interactive) instead of auto-gating.")
+    p.add_argument("--redraw", action="store_true", help="Recompute every gate even if its file exists.")
     p.add_argument("--per-sample", type=int, default=5000, help="Events per file pooled for each draw plot.")
     p.add_argument("--subsample", type=int, default=20000, help="Events FlowKit stores per file.")
     p.add_argument("--no-save-events", action="store_true", help="Skip writing the final per-sample CSVs.")
@@ -80,16 +85,17 @@ def main(argv=None):
     def gate_file(stage: Stage) -> Path:
         return gates_dir / f"{stage.name}_gate.json"
 
-    # If any stage needs drawing, switch to the interactive Qt backend *before*
-    # pyplot is imported anywhere (you can't change backend afterwards).
-    need_draw = any(args.redraw or not gate_file(s).exists() for s in stages)
+    # Only manual drawing needs the interactive Qt backend; auto-gating is
+    # headless. Switch backend *before* pyplot is imported anywhere (you can't
+    # change it afterwards).
+    need_draw = args.manual and any(args.redraw or not gate_file(s).exists() for s in stages)
     import matplotlib
 
-    if need_draw:
-        matplotlib.use("QtAgg")
+    matplotlib.use("QtAgg" if need_draw else "Agg")
 
     from flowsmith.gating import (
         apply_gate,
+        auto_gate,
         build_flowkit_polygon_gate,
         draw_polygon_gate,
         load_gate,
@@ -119,8 +125,13 @@ def main(argv=None):
             x, y = stage.x, stage.y
             print(f"[{stage.name}] pooling {args.per_sample} events/file for {y} vs {x} ...")
             px, py = pool_events(populations, x, y, per_sample=args.per_sample)
-            print(f"[{stage.name}] draw the gate (Enter when done) ...")
-            vertices = draw_polygon_gate(px, py, x_channel=x, y_channel=y)
+            if args.manual:
+                print(f"[{stage.name}] draw the gate (Enter when done) ...")
+                vertices = draw_polygon_gate(px, py, x_channel=x, y_channel=y)
+            else:
+                vertices = auto_gate(stage.name, px, py)
+                print(f"[{stage.name}] auto-gated ({len(vertices)} vertices) — "
+                      f"check gate_overlay_{stage.name}.png, or re-run with --manual.")
             save_gate(vertices, gpath, x, y, name=stage.name)
             print(f"[{stage.name}] saved gate ({len(vertices)} vertices) to {gpath}.")
 

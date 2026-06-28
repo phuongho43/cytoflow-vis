@@ -5,14 +5,15 @@ Interactive gating and visualization for flow cytometry FCS files, built on
 
 The workflow is built from these commands:
 
-- **`gate-cells`** — draw a **sequential gating hierarchy** of polygon gates and
+- **`gate-cells`** — place a **sequential gating hierarchy** of polygon gates and
   apply it across every sample:
   1. **cells** — SSC-A vs FSC-A, excluding low-scatter debris.
   2. **singlets** — FSC-H vs FSC-A, keeping the diagonal and excluding
      doublets/aggregates.
 
-  Each gate is drawn once on a pooled subsample and filtered from the previous
-  stage's population (so the singlet gate is drawn on the cells only).
+  Each gate is placed once on a pooled subsample and filtered from the previous
+  stage's population (so the singlet gate is on the cells only). Gates are placed
+  **automatically by default** (override with `--manual` to draw by hand).
 
 - **`analyze`** — **config-driven** fluorescence analysis of the gated singlets.
   Each experiment is described by a TOML file listing the channels and which
@@ -51,20 +52,29 @@ A03.fcs,dox_high,WT,dox,100,1
 
 Put the FCS files in a directory (e.g. `data/`).
 
-## 2. Draw the gates and apply them
+## 2. Place the gates and apply them
 
 ```bash
 uv run gate-cells --sheet samples.csv --data data/ --out results/
 ```
 
-For each stage (cells, then singlets):
+For each stage (cells, then singlets), a random subsample of the parent
+population is **pooled across all files** so the gate reflects the whole
+experiment, the gate is placed, and its output becomes the next stage's input.
 
-1. A random subsample of the parent population is **pooled across all files**
-   into one density plot, so the gate reflects the whole experiment.
-2. An interactive window opens — **click to place polygon vertices** around the
-   target population. Drag a vertex to adjust, `Esc` to start over, **`Enter`**
-   (or close the window) when done.
-3. The gate is applied; its output becomes the next stage's input.
+**By default the gates are placed automatically** — a robust density ellipse
+around the main scatter population (cells, dropping low-scatter debris) and a
+height/area ratio wedge along the diagonal (singlets, dropping doublets). This is
+hands-off and headless; **always check `gate_overlay_<stage>.png` to confirm the
+fit**.
+
+To draw the gates by hand instead, pass **`--manual`**: an interactive window
+opens per stage — **click to place polygon vertices**, drag to adjust, `Esc` to
+start over, **`Enter`** (or close the window) when done.
+
+```bash
+uv run gate-cells --sheet samples.csv --data data/ --out results/ --manual
+```
 
 ### Outputs (in `--out`)
 
@@ -79,13 +89,14 @@ For each stage (cells, then singlets):
 
 Gates are saved per stage as `<stage>_gate.json` in the output directory (or
 `--gates DIR`). On the next run, any stage whose gate file already exists is
-reused automatically — only missing gates open a window:
+reused automatically — only missing stages are re-gated:
 
 ```bash
 uv run gate-cells --sheet samples.csv --data data/ --out results/
 ```
 
-Pass `--redraw` to re-draw every gate from scratch.
+Pass `--redraw` to recompute every gate from scratch (auto, or interactive with
+`--manual`).
 
 ### Useful options
 
