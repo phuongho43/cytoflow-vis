@@ -38,18 +38,22 @@ polybrene (optional), and a flow cytometer with a laser/filter for your reporter
    at harvest (see the note below). Optionally add **polybrene (4–8 µg/mL)**,
    identical across wells.
 
-2. **Make the dilution series.** From your 100 µL prep, take **~50 µL** and make a
-   **~3-fold (third-log) serial dilution**, then add a fixed volume to each well to
-   give **original-prep-equivalent volumes** of **0.01, 0.03, 0.1, 0.3, 1, 3, 10,
-   30, 100 µL**, plus a **0 µL mock** — **one well per dilution** (10 wells, fits a
-   12-well plate). This nine-step span is the recommended default: it guarantees
-   **≥2 wells land in the usable 5–60% positive range for any titer from 10⁶ to
+2. **Make the dilution series.** With **~50 µL of prep** to spend, make a **1-2-5
+   serial dilution** (~2-fold steps) and add a fixed volume to each well to give
+   **original-prep-equivalent volumes** of **0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2,
+   5, 10 µL**, plus a **0 µL mock** — **one well per dilution** (11 wells, fits a
+   12-well plate). This ten-step span is the recommended default: it guarantees
+   **≥3 wells land in the usable 5–60% positive range for any titer from 10⁷ to
    10⁹ TU/mL**, so you don't need to know the titer beforehand (the analysis keeps
-   the in-range wells and ignores the rest). Sub-µL equivalents are made by
-   diluting the prep — e.g. 0.01 µL-equivalent = 1 µL of a 1:100 dilution; 10 µL of
-   a 1:10 dilution → `virus_uL = 1`. Record the prep-equivalent volume as
-   `virus_uL` in `samples.csv`, so the reported titer refers to your **undiluted**
-   prep. The **0 µL mock** sets the GFP+ threshold and is essential.
+   the in-range wells and ignores the rest). It spends only **~19 µL of prep total**
+   (the sum of the volumes), well within your 50 µL. The 10 µL top well caps the
+   series because that is what 50 µL can afford across the dilutions; it also sets
+   the lowest measurable titer (~10⁷ — a much lower titer would need larger volumes
+   than you have). Sub-µL equivalents are made by diluting the prep — e.g.
+   0.01 µL-equivalent = 1 µL of a 1:100 dilution; 10 µL of a 1:10 dilution →
+   `virus_uL = 1`. Record the prep-equivalent volume as `virus_uL` in
+   `samples.csv`, so the reported titer refers to your **undiluted** prep. The
+   **0 µL mock** sets the GFP+ threshold and is essential.
 
 3. **Incubate 48–72 h** to let the reporter express. Aim to keep the highest
    useful wells **below ~30% positive** if you can — the titer comes from the
@@ -97,8 +101,8 @@ uv sync          # install flowsmith and its dependencies (run once)
   | `sample` | a short label for the well |
   | `virus_uL` | virus volume added to that well (the dilution series) |
 
-  The provided `samples.csv` already matches the third-log 0.01–100 µL series
-  above — rename the `filename` entries to your files, or replace the rows.
+  The provided `samples.csv` already matches the 1-2-5 0.01–10 µL series above —
+  rename the `filename` entries to your files, or replace the rows.
 
 ### B2. Point the config at your reporter and cell count
 
